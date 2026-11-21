@@ -1,0 +1,471 @@
+--- a/ggml/src/ggml-cuda/fattn-common.cuh
++++ b/ggml/src/ggml-cuda/fattn-common.cuh
+@@ -1032,7 +1032,7 @@
+ void launch_fattn(
+     ggml_backend_cuda_context & ctx, ggml_tensor * dst, fattn_kernel_t fattn_kernel, const int nwarps, const size_t nbytes_shared,
+     const int nbatch_fa, const bool need_f16_K, const bool need_f16_V, const bool stream_k, const bool use_sparse,
+-    const int warp_size = WARP_SIZE, const bool async_kv_preload = false
++    const int warp_size = WARP_SIZE, const bool async_kv_preload = false, fattn_kernel_t reference_occupancy_kernel = nullptr
+ ) {
+     constexpr int ncols = ncols1 * ncols2;
+ 
+@@ -1196,7 +1196,7 @@
+ 
+     const dim3 block_dim(warp_size, nwarps, 1);
+     int max_blocks_per_sm = 1; // Max. number of active blocks limited by occupancy.
+-    CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&max_blocks_per_sm, fattn_kernel, block_dim.x * block_dim.y * block_dim.z, nbytes_shared));
++    CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&max_blocks_per_sm, reference_occupancy_kernel ? reference_occupancy_kernel : fattn_kernel, block_dim.x * block_dim.y * block_dim.z, nbytes_shared));
+     GGML_ASSERT(max_blocks_per_sm > 0);
+     int parallel_blocks = max_blocks_per_sm;
+ 
+@@ -1309,22 +1309,27 @@
+ 
+     GGML_ASSERT(block_dim.x % warp_size == 0);
+ 
++    // Preserve the stock per-head KV partition and combine kernel, changing only the number of head groups.
++    if (reference_occupancy_kernel) {
++        GGML_ASSERT(!stream_k && blocks_num.z % 3 == 0);
++        blocks_num.z /= 3;
++    }
+     ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(blocks_num, block_dim, nbytes_shared, main_stream);
+     ggml_cuda_kernel_launch(fattn_kernel, launch_params,
+         (const char *) Q->data,
+         K_data,
+         V_data,
+-        mask ? ((const char *) mask->data) : nullptr,
++        (const char *) dst->src[6]->data,
+         sinks ? ((const char *) sinks->data) : nullptr,
+         KV_max.ptr,
+-        kv_rows ? (const int *) kv_rows->data : nullptr,
++        (const int *) dst->src[7]->data,
+         !stream_k && parallel_blocks > 1 ? dst_tmp.ptr : (float *) KQV->data, dst_tmp_meta.ptr,
+         scale, max_bias, m0, m1, n_head_log2, logit_softcap,
+         Q->ne[0], ne01,     Q->ne[2], Q->ne[3], Q->nb[1], Q->nb[2], Q->nb[3],
+         K->ne[0], n_kv, K->ne[2], K->ne[3], nb11, nb12, nb13,
+         nb21, nb22, nb23,
+-        mask ? mask->ne[1] : 0, mask ? mask->ne[2] : 0, mask ? mask->ne[3] : 0,
+-        mask ? mask->nb[1] : 0, mask ? mask->nb[2] : 0, mask ? mask->nb[3] : 0
++        dst->src[6]->ne[1], dst->src[6]->ne[0], 1,
++        dst->src[6]->nb[1], dst->src[6]->nb[2], size_t(dst->op_params[8])
+     );
+     CUDA_CHECK(cudaGetLastError());
+ 
+--- a/ggml/src/ggml-cuda/fattn-mma-f16.cuh
++++ b/ggml/src/ggml-cuda/fattn-mma-f16.cuh
+@@ -523,89 +523,24 @@
+     }
+ }
+ 
++struct inkling_relative_bias {
++    const float * head_profile;
++    const int32_t * positions;
++    int n_kv, query_offset, extent, row_stride, query_stride;
++};
++
+ template<int ncols1, int nwarps, int nbatch_fa, bool use_cp_async, bool oob_check, bool use_sparse>
+ static __device__ __forceinline__ void flash_attn_ext_f16_load_mask(
+-        const half * const __restrict__ mask_h, half * const __restrict__ tile_mask,
+-        const int stride_mask, const int k_VKQ_0, const int i_sup, const int j0, const uint3 ne01,
+-        const int32_t * const __restrict__ indices) {
+-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+-    if constexpr (use_cp_async) {
+-        static_assert(nbatch_fa <= 8*warp_size && nbatch_fa % 8 == 0, "bad nbatch_fa");
+-        static_assert(!oob_check, "OOB check incompatible with cp_async");
+-        static_assert(!use_sparse, "sparse gather incompatible with cp_async");
+-        constexpr int preload = nbatch_fa >= 32 ? nbatch_fa * sizeof(half) : 64;
+-        constexpr int cols_per_warp = 8*warp_size/nbatch_fa;
+-        constexpr int stride_j = nwarps * cols_per_warp;
+-
+-        const unsigned int tile_mask_32 = ggml_cuda_cvta_generic_to_shared(tile_mask);
+-
+-#pragma unroll
+-        for (int j1 = 0; j1 < ncols1; j1 += stride_j) {
+-            const int j_sram = j1 + threadIdx.y*cols_per_warp + threadIdx.x / (warp_size/cols_per_warp);
+-            const int j_vram = fastmodulo(j0 + j_sram, ne01);
+-
+-            if (j1 + stride_j > ncols1 && j_sram >= ncols1) {
+-                break;
+-            }
+-
+-            const int i = 8 * (threadIdx.x % (nbatch_fa/8));
+-
+-            cp_async_cg_16<preload>(tile_mask_32 + j_sram*(nbatch_fa*sizeof(half) + 16) + i*sizeof(half), mask_h + int64_t(j_vram)*stride_mask + k_VKQ_0 + i);
+-        }
+-    } else if constexpr (oob_check || use_sparse) {
+-#pragma unroll
+-        for (int j1 = 0; j1 < ncols1; j1 += nwarps) {
+-            const int j_sram = j1 + threadIdx.y;
+-            const int j_vram = fastmodulo(j0 + j_sram, ne01);
+-
+-            if (j1 + nwarps > ncols1 && j_sram >= ncols1) {
+-                break;
+-            }
+-
+-#pragma unroll
+-            for (int i0 = 0; i0 < nbatch_fa; i0 += warp_size) {
+-                const int i = i0 + threadIdx.x;
+-
+-                if constexpr (use_sparse) {
+-                    const int32_t index = i < i_sup ? indices[k_VKQ_0 + i] : -1;
+-                    tile_mask[j_sram*(nbatch_fa + 8) + i] = index >= 0 ? mask_h[int64_t(j_vram)*stride_mask + index] : half(-INFINITY);
+-                } else {
+-                    tile_mask[j_sram*(nbatch_fa + 8) + i] = i < i_sup ? mask_h[int64_t(j_vram)*stride_mask + k_VKQ_0 + i] : half(0.0f);
+-                }
+-            }
+-        }
+-    } else if constexpr (nbatch_fa < 2*warp_size) {
+-        constexpr int cols_per_warp = 2*warp_size/nbatch_fa;
+-        constexpr int stride_j = nwarps * cols_per_warp;
+-#pragma unroll
+-        for (int j1 = 0; j1 < ncols1; j1 += stride_j) {
+-            const int j_sram = j1 + threadIdx.y*cols_per_warp + threadIdx.x / (warp_size/cols_per_warp);
+-            const int j_vram = fastmodulo(j0 + j_sram, ne01);
+-
+-            if (j1 + stride_j > ncols1 && j_sram >= ncols1) {
+-                break;
+-            }
+-
+-            const int i = threadIdx.x % (warp_size/cols_per_warp);
+-
+-            ggml_cuda_memcpy_1<sizeof(half2)>(tile_mask + j_sram*(nbatch_fa + 8) + 2*i, mask_h + int64_t(j_vram)*stride_mask + k_VKQ_0 + 2*i);
+-        }
+-    } else {
+-#pragma unroll
+-        for (int j1 = 0; j1 < ncols1; j1 += nwarps) {
+-            const int j_sram = j1 + threadIdx.y;
+-            const int j_vram = fastmodulo(j0 + j_sram, ne01);
+-
+-            if (j1 + nwarps > ncols1 && j_sram >= ncols1) {
+-                break;
+-            }
+-
+-#pragma unroll
+-            for (int i0 = 0; i0 < nbatch_fa; i0 += 2*warp_size) {
+-                const int i = i0 + 2*threadIdx.x;
+-
+-                ggml_cuda_memcpy_1<sizeof(half2)>(tile_mask + j_sram*(nbatch_fa + 8) + i, mask_h + int64_t(j_vram)*stride_mask + k_VKQ_0 + i);
+-            }
++        const inkling_relative_bias * bias, half * tile_mask, int, int key_start, int, int j0, uint3 ne01, const int32_t *) {
++    for (int j = threadIdx.y; j < ncols1; j += nwarps) {
++        const int qi = fastmodulo(j0+j, ne01);
++        const int qp = bias->positions[bias->n_kv+bias->query_offset+qi];
++        const float * profile = bias->head_profile + size_t(qi)*bias->query_stride;
++        for (int i = threadIdx.x; i < nbatch_fa; i += 32) {
++            const int key = key_start+i;
++            const int kp = key < bias->n_kv ? bias->positions[key] : -1;
++            const int dist = (kp >= 0 && qp >= kp) ? min(qp-kp,bias->extent) : -1;
++            tile_mask[j*(nbatch_fa+8)+i] = dist >= 0 ? __float2half_rn(profile[dist*bias->row_stride]) : __float2half_rn(-INFINITY);
+         }
+     }
+ }
+@@ -617,7 +552,7 @@
+         const float2 * const __restrict__ Q_f2,
+         const half2  * const __restrict__ K_h2,
+         const half2  * const __restrict__ V_h2,
+-        const half   * const __restrict__ mask_h,
++        const inkling_relative_bias * const __restrict__ mask_h,
+         const int32_t * const __restrict__ indices,
+         float2       * const __restrict__ dstk,
+         float2       * const __restrict__ dstk_fixup,
+@@ -1266,7 +1201,7 @@
+         const float2 * const __restrict__ Q_f2,
+         const half2  * const __restrict__ K_h2,
+         const half2  * const __restrict__ V_h2,
+-        const half   * const __restrict__ mask_h,
++        const inkling_relative_bias * const __restrict__ mask_h,
+         const int32_t * const __restrict__ indices,
+         const float  * const __restrict__ sinks_f,
+         float2       * const __restrict__ dstk,
+@@ -1565,12 +1500,12 @@
+     // If attention sinks are used, potentially re-scale if KQ_max is small.
+     // Also add the sink as a value to KQ_rowsum, this is done after synchronization of KQ_rowsum
+     //     so it's being done unconditionally for every thread.
+-    if (!is_fixup && (np == 1 || threadIdx.y % np == 0) && sinks_f) {
++    if (!is_fixup && (np == 1 || threadIdx.y % np == 0)) {
+         float KQ_max_scale[cols_per_thread];
+ #pragma unroll
+         for (int col = 0; col < cols_per_thread; ++col) {
+             const int jc = (threadIdx.y/np)*cols_per_warp + (cols_per_warp == 8 ? T_C_KQ::get_j(col) : T_C_KQ::get_i(2*col));
+-            const float sink = sinks_f[jc % ncols2];
++            const float sink = 0.0f;
+ 
+             const float KQ_max_new = fmaxf(KQ_max[col], sink);
+             const float KQ_max_diff = KQ_max[col] - KQ_max_new;
+@@ -1945,7 +1880,7 @@
+         const char * mask_ptr,
+         const char * sinks_ptr,
+         const int  * KV_max_ptr,
+-        const int  * KV_rows_ptr,
++        const int  * position_ptr,
+         float      * dst_ptr,
+         float2     * dst_meta_ptr,
+         const float scale,
+@@ -1962,6 +1897,7 @@
+                             const int32_t ne31, const int32_t ne32, const int32_t ne33,
+                             const int32_t nb31, const int64_t nb32, const int64_t nb33) {
+     ggml_cuda_pdl_sync(); // TODO optimize placement
++    const int * KV_rows_ptr = nullptr;
+ #if defined(FLASH_ATTN_AVAILABLE) && (defined(VOLTA_MMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE) || defined(AMD_MFMA_AVAILABLE))
+     const char * GGML_CUDA_RESTRICT Q              = Q_ptr;
+     const char * GGML_CUDA_RESTRICT K              = K_ptr;
+@@ -2074,8 +2010,9 @@
+ 
+         const float2 * Q_f2   = (const float2 *) (Q + nb03*sequence + nb02*zt_Q);
+         const half2  * K_h2   = (const half2  *) (K + nb13*sequence + nb12*z_KV);
+-        const half   * mask_h = ncols2 == 1 && !mask ? nullptr :
+-            (const half *) (mask + nb33*(sequence % ne33) + nb32*(zt_Q % ne32));
++        const inkling_relative_bias bias{(const float *)mask + zt_Q, position_ptr, ne11, int(nb33), ne31-1,
++                int(nb31/sizeof(float)), int(nb32/sizeof(float))};
++        const inkling_relative_bias * mask_h = &bias;
+         float2       * dstk   = ((float2 *) dst) + (sequence*ne01.z*ne02 + zt_Q) * (DV/2);
+ 
+         const half2 * V_h2 = V_is_K_view ? K_h2 : (const half2 *) (V + nb23*sequence + nb22*z_KV);
+@@ -2128,8 +2065,9 @@
+ 
+     const float2 * Q_f2   = (const float2 *) (Q + nb03*sequence + nb02*zt_Q);
+     const half2  * K_h2   = (const half2  *) (K + nb13*sequence + nb12*z_KV);
+-    const half   * mask_h = ncols2 == 1 && !mask ? nullptr :
+-        (const half *) (mask + nb33*(sequence % ne33) + nb32*(zt_Q % ne32));
++    const inkling_relative_bias bias{(const float *)mask + zt_Q, position_ptr, ne11, int(nb33), ne31-1,
++                int(nb31/sizeof(float)), int(nb32/sizeof(float))};
++        const inkling_relative_bias * mask_h = &bias;
+     float2       * dstk   = ((float2 *) dst) + (sequence*ne01.z*ne02 + zt_Q) * (DV/2);
+ 
+     const half2 * V_h2 = V_is_K_view ? K_h2 : (const half2 *) (V + nb23*sequence + nb22*z_KV);
+@@ -2215,56 +2153,14 @@
+ #else
+     using fattn_kernel_ptr_t = fattn_kernel_t;
+ #endif // defined(GGML_USE_HIP)
+-    fattn_kernel_t fattn_kernel;
+-    bool use_sparse = false;
+-    if (logit_softcap == 0.0f) {
+-        constexpr bool use_logit_softcap = false;
+-#if !defined(GGML_USE_MUSA)
+-        if constexpr (ggml_cuda_flash_attn_ext_mma_f16_may_use_sparse(DKQ, DV, ncols1, ncols2)) {
+-            if (ggml_cuda_flash_attn_ext_mma_f16_shall_use_sparse(cc, dst, ncols1, ncols2)) {
+-                constexpr bool use_sparse_kernel = true;
+-                fattn_kernel = flash_attn_ext_f16<DKQ, DV, ncols1, ncols2, use_logit_softcap, V_is_K_view, use_sparse_kernel>;
+-                use_sparse = true;
+-
+-                static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = {false};
+-                if (!shared_memory_limit_raised[id]) {
+-                    CUDA_CHECK(cudaFuncSetAttribute(reinterpret_cast<fattn_kernel_ptr_t>(fattn_kernel), cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes_shared_total));
+-                    shared_memory_limit_raised[id] = true;
+-                }
+-            } else {
+-                constexpr bool use_sparse_kernel = false;
+-                fattn_kernel = flash_attn_ext_f16<DKQ, DV, ncols1, ncols2, use_logit_softcap, V_is_K_view, use_sparse_kernel>;
+-
+-                static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = {false};
+-                if (!shared_memory_limit_raised[id]) {
+-                    CUDA_CHECK(cudaFuncSetAttribute(reinterpret_cast<fattn_kernel_ptr_t>(fattn_kernel), cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes_shared_total));
+-                    shared_memory_limit_raised[id] = true;
+-                }
+-            }
+-        } else
+-#endif // !defined(GGML_USE_MUSA)
+-        {
+-            constexpr bool use_sparse_kernel = false;
+-            fattn_kernel = flash_attn_ext_f16<DKQ, DV, ncols1, ncols2, use_logit_softcap, V_is_K_view, use_sparse_kernel>;
+-
+-            static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = {false};
+-            if (!shared_memory_limit_raised[id]) {
+-                CUDA_CHECK(cudaFuncSetAttribute(reinterpret_cast<fattn_kernel_ptr_t>(fattn_kernel), cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes_shared_total));
+-                shared_memory_limit_raised[id] = true;
+-            }
+-        }
+-    } else {
+-        constexpr bool use_logit_softcap = true;
+-        constexpr bool use_sparse_kernel = false;
+-        fattn_kernel = flash_attn_ext_f16<DKQ, DV, ncols1, ncols2, use_logit_softcap, V_is_K_view, use_sparse_kernel>;
+-
+-        static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = {false};
+-        if (!shared_memory_limit_raised[id]) {
+-            CUDA_CHECK(cudaFuncSetAttribute(reinterpret_cast<fattn_kernel_ptr_t>(fattn_kernel), cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes_shared_total));
+-            shared_memory_limit_raised[id] = true;
+-        }
+-    }
+-
++    const bool use_sparse = false;
++    fattn_kernel_t fattn_kernel = flash_attn_ext_f16<DKQ, DV, ncols1, ncols2, false, V_is_K_view, false>;
++    static bool configured[GGML_CUDA_MAX_DEVICES] = {};
++    if (!configured[id]) {
++        CUDA_CHECK(cudaFuncSetAttribute(reinterpret_cast<fattn_kernel_ptr_t>(fattn_kernel),
++                    cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes_shared_total));
++        configured[id] = true;
++    }
+     const bool async_kv_preload = nstages == 2 && !use_sparse;
+     launch_fattn<DV, ncols1, ncols2>
+         (ctx, dst, fattn_kernel, nwarps, nbytes_shared_total, nbatch_fa, true, true, true, use_sparse, warp_size_host, async_kv_preload);
+--- a/ggml/src/ggml-cuda/fattn-vec.cuh
++++ b/ggml/src/ggml-cuda/fattn-vec.cuh
+@@ -105,14 +105,27 @@
+ 
+     const int ic0 = blockIdx.x * ncols; // Index of the Q/QKV column to work on.
+ 
+-    const int sequence = blockIdx.z / ne02;
+-    const int head = blockIdx.z - sequence*ne02;
++    // Decode uses a single sequence position. A multi-column CTA processes adjacent
++    // query heads together; each sees the same keys/values and its own bias profile.
++    constexpr int heads_per_cta = ncols;
++    const int groups = ne02 / heads_per_cta;
++    const int sequence = blockIdx.z / groups;
++    const int head = (blockIdx.z - sequence*groups)*heads_per_cta;
+     const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
+     Q += nb03*sequence + nb02* head              + nb01*ic0;
+     K += nb13*sequence + nb12*(head / gqa_ratio);
+     V += nb23*sequence + nb22*(head / gqa_ratio);
+ 
+-    const half * maskh  = mask ? (const half  *) (mask + nb33*(sequence % ne33) + nb32*(head % ne32) + nb31*ic0) : nullptr;
++    static_assert((ncols == 1 || ncols == 3) && D == 128 && !use_logit_softcap, "single-token compact vector attention");
++    const float * profile = reinterpret_cast<const float *>(mask) + head;
++    const int extent = ne31 - 1;
++    const int profile_stride = nb31 / sizeof(float);
++    const int query_position = KV_rows_ptr[ne11 + int(nb33)];
++    float far_bias[ncols];
++#pragma unroll
++    for (int j = 0; j < ncols; ++j) {
++        far_bias[j] = __half2float(__float2half_rn(profile[extent*profile_stride + j]));
++    }
+ 
+     const float slope = get_alibi_slope(max_bias, head, n_head_log2, m0, m1);
+ 
+@@ -176,7 +189,7 @@
+                     tmp_q_ds[threadIdx.x] = make_float2(0.0f, 0.0f);
+                 }
+             } else {
+-                const float * Q_f = (const float *) (Q + j*nb01);
++                const float * Q_f = (const float *) (Q + j*nb02);
+                 constexpr int nthreads_quantize = D/sizeof(int) < WARP_SIZE ? D/sizeof(int) : WARP_SIZE;
+ #pragma unroll
+                 for (int i0 = 0; i0 < int(D/sizeof(int)); i0 += nthreads_quantize) {
+@@ -206,12 +219,12 @@
+     } else if constexpr (type_K == GGML_TYPE_F8_E4M3) {
+ #pragma unroll
+         for (int j = 0; j < ncols; ++j) {
+-            const float * Q_j = (const float *) (Q + j*nb01);
++            const float * Q_j = (const float *) (Q + j*nb02);
+ #pragma unroll
+             for (int i0 = 0; i0 < D; i0 += nthreads_KQ*4) {
+                 const int i = i0 + (threadIdx.x % nthreads_KQ)*4;
+                 float4 tmp = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+-                if (ncols == 1 || ic0 + j < int(ne01.z)) {
++                {
+                     ggml_cuda_memcpy_1<sizeof(tmp)>(&tmp, Q_j + i);
+                 }
+ #ifdef V_DOT2_F32_F16_AVAILABLE
+@@ -229,13 +242,13 @@
+         const half2 scale_h2 = make_half2(scale, scale);
+ #pragma unroll
+         for (int j = 0; j < ncols; ++j) {
+-            const float2 * Q_j = (const float2 *) (Q + j*nb01);
++            const float2 * Q_j = (const float2 *) (Q + j*nb02);
+ #pragma unroll
+             for (int i0 = 0; i0 < D/2; i0 += nthreads_KQ*cpy_ne) {
+                 const int i = i0 + (nthreads_KQ == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_KQ)*cpy_ne;
+ 
+                 __align__(16) float2 tmp[cpy_ne] = {{0.0f, 0.0f}};
+-                if (ncols == 1 || ic0 + j < int(ne01.z)) {
++                {
+                     ggml_cuda_memcpy_1<cpy_nb>(tmp,            &Q_j[i]);
+                     ggml_cuda_memcpy_1<cpy_nb>(tmp + cpy_ne/2, &Q_j[i + cpy_ne/2]);
+                 }
+@@ -252,11 +265,11 @@
+ #else
+ #pragma unroll
+         for (int j = 0; j < ncols; ++j) {
+-            const float2 * Q_j = (const float2 *) (Q + j*nb01);
++            const float2 * Q_j = (const float2 *) (Q + j*nb02);
+ #pragma unroll
+             for (int i0 = 0; i0 < D/2; i0 += nthreads_KQ*cpy_ne) {
+                 const int i = i0 + (nthreads_KQ == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_KQ)*cpy_ne;
+-                if (ncols == 1 || ic0 + j < int(ne01.z)) {
++                {
+                     ggml_cuda_memcpy_1<cpy_nb>(&Q_reg[j][i0/nthreads_KQ],            &Q_j[i]);
+                     ggml_cuda_memcpy_1<cpy_nb>(&Q_reg[j][i0/nthreads_KQ + cpy_ne/2], &Q_j[i + cpy_ne/2]);
+                 }
+@@ -273,10 +286,9 @@
+     const int k_VKQ_max = KV_max ? KV_max[sequence*gridDim.x + blockIdx.x] : ne11;
+     K     += blockIdx.y*nthreads * nb11;
+     V     += blockIdx.y*nthreads * nb21;
+-    maskh += blockIdx.y*nthreads;
+     for (int k_VKQ_0 = blockIdx.y*nthreads; k_VKQ_0 < k_VKQ_max; k_VKQ_0 += gridDim.y*nthreads,
+              // Increment pointers after each loop:
+-             K += gridDim.y*nthreads*nb11, V += gridDim.y*nthreads*nb21, maskh += gridDim.y*nthreads) {
++             K += gridDim.y*nthreads*nb11, V += gridDim.y*nthreads*nb21) {
+ 
+         // Calculate KQ tile and keep track of new maximum KQ values:
+         float KQ_reg[ncols]; // KQ in registers.
+@@ -300,9 +312,14 @@
+                     sum = logit_softcap*tanhf(sum);
+                 }
+ 
+-                if (mask && (ncols == 1 || ic0 + j < int(ne01.z))) {
+-                    sum += slope*__half2float(maskh[j*ne11 + i_KQ]);
+-                }
++                const int key_position = KV_rows_ptr[k_VKQ_0 + i_KQ];
++                float bias = -INFINITY;
++                if (key_position >= 0 && key_position <= query_position) {
++                    const int distance = query_position - key_position;
++                    bias = distance >= extent ? far_bias[j] :
++                            __half2float(__float2half_rn(profile[distance*profile_stride + j]));
++                }
++                sum += slope*bias;
+ 
+                 KQ_max_new[j] = fmaxf(KQ_max_new[j], sum + FATTN_KQ_MAX_OFFSET);
+ 
+@@ -401,17 +418,12 @@
+         ggml_cuda_syncwarp(); // Needed for KQ synchronization.
+     }
+ 
+-    if (sinks && blockIdx.y == 0) {
+-        const float sink = ((const float *) sinks)[head];
+-
+-#pragma unroll
+-        for (int j0 = 0; j0 < ncols; j0 += nwarps) {
+-            const int j = j0 + threadIdx.y;
+-
+-            if (j0 + nwarps > ncols && j >= ncols) {
+-                break;
+-            }
+-
++    if (blockIdx.y == 0 && threadIdx.y == 0) {
++        const float sink = 0.0f;
++
++#pragma unroll
++        // Apply the zero sink on warp 0 for every head, matching separate one-head CTAs.
++        for (int j = 0; j < ncols; ++j) {
+             const float kqmax_new_j = fmaxf(sink, KQ_max[j]);
+             const float KQ_max_scale = expf(KQ_max[j] - kqmax_new_j);
+             KQ_max[j] = kqmax_new_j;
+@@ -456,10 +468,6 @@
+ 
+ #pragma unroll
+     for (int j_VKQ = 0; j_VKQ < ncols; ++j_VKQ) {
+-        if (ncols > 1 && ic0 + j_VKQ >= int(ne01.z)) {
+-            break;
+-        }
+-
+         float kqmax_new = KQ_max_shared[j_VKQ][threadIdx.x];
+         kqmax_new = warp_reduce_max(kqmax_new);
+         const float kqmax_scale = expf(KQ_max[j_VKQ] - kqmax_new);
+@@ -523,7 +531,7 @@
+                 if (gridDim.y == 1) {
+                     dst_val /= KQ_sum[j_VKQ];
+                 }
+-                dst[(((sequence*int(ne01.z) + ic0 + j_VKQ)*ne02 + head)*gridDim.y + blockIdx.y)*D + i0 + tid] = dst_val;
++                dst[(((sequence*int(ne01.z) + ic0)*ne02 + head + j_VKQ)*gridDim.y + blockIdx.y)*D + i0 + tid] = dst_val;
+             }
+         }
+ 
+@@ -533,8 +541,8 @@
+ 
+     }
+ 
+-    if (gridDim.y != 1 && tid < ncols && (ncols == 1 || ic0 + tid < int(ne01.z))) {
+-        dst_meta[((sequence*int(ne01.z) + ic0 + tid)*ne02 + head)*gridDim.y + blockIdx.y] = make_float2(KQ_max[tid], KQ_sum[tid]);
++    if (gridDim.y != 1 && tid < ncols) {
++        dst_meta[((sequence*int(ne01.z) + ic0)*ne02 + head + tid)*gridDim.y + blockIdx.y] = make_float2(KQ_max[tid], KQ_sum[tid]);
+     }
+ #else
+     GGML_UNUSED_VARS(Q_ptr, K_ptr, V_ptr, mask_ptr, sinks_ptr, KV_max_ptr, KV_rows_ptr, dst_ptr, dst_meta_ptr, scale,

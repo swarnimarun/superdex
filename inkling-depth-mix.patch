@@ -1,0 +1,62 @@
+--- a/src/models/models.h
++++ b/src/models/models.h
+@@ -2507,6 +2507,8 @@
+ 
+     struct graph : public llm_graph_context {
+         graph(const llm_graph_params & params);
++        // Graph-local immutable prefixes, in reverse block order as used by depth attention.
++        std::map<std::pair<ggml_tensor *, ggml_tensor *>, ggml_tensor *> block_prefixes;
+         ggml_tensor * mix(const std::vector<ggml_tensor *> & blocks, ggml_tensor * cur, ggml_tensor * query);
+         ggml_tensor * clip(ggml_tensor * cur, ggml_tensor * scale, float threshold);
+         ggml_tensor * convolve(
+--- a/src/models/inkling2.cpp
++++ b/src/models/inkling2.cpp
+@@ -177,8 +177,17 @@
+ // attention over the depth: mix the earlier block outputs and cur with learned queries
+ ggml_tensor * llama_model_inkling2::graph::mix(const std::vector<ggml_tensor *> & blocks, ggml_tensor * cur, ggml_tensor * query) {
+     ggml_tensor * states = ggml_reshape_3d(ctx0, cur, n_embd, 1, n_tokens);
++    ggml_tensor * prefix = nullptr;
+     for (ggml_tensor * block : blocks) {
+-        states = ggml_concat(ctx0, ggml_reshape_3d(ctx0, block, n_embd, 1, n_tokens), states, 1);
++        auto & joined = block_prefixes[{prefix, block}];
++        if (joined == nullptr) {
++            auto * row = ggml_reshape_3d(ctx0, block, n_embd, 1, n_tokens);
++            joined = prefix ? ggml_concat(ctx0, row, prefix, 1) : row;
++        }
++        prefix = joined;
++    }
++    if (prefix) {
++        states = ggml_concat(ctx0, prefix, states, 1);
+     }
+     states = ggml_rms_norm(ctx0, states, 1e-6f);
+ 
+--- a/src/models/inkling2-loop.cpp
++++ b/src/models/inkling2-loop.cpp
+@@ -95,6 +95,16 @@
+             cur = prelude;
+             blocks = prelude_blocks;
+         }
++        // Every layer reads the same previous-pass bank. Evaluate all its
++        // independent queries in one matrix multiply and reuse the messages.
++        ggml_tensor * messages = nullptr;
++        if (pass > 0) {
++            ggml_tensor * queries = m.loop_layers.front().msg_query;
++            for (int ip = start + 1; ip < end; ++ip) {
++                queries = ggml_concat(ctx0, queries, m.loop_layers[ip - start].msg_query, 1);
++            }
++            messages = mix(bank, bank_out, queries);
++        }
+         for (int ip = start; ip < end; ++ip) {
+             const int il = pass == 0 ? ip : m.n_phys + (pass - 1)*(end - start) + (ip - start);
+             if (pass == 0) {
+@@ -102,7 +112,9 @@
+                 continue;
+             }
+             const auto & loop = m.loop_layers[ip - start];
+-            cur = build_layer(il, ip, cur, blocks, mix(bank, bank_out, loop.msg_query), &loop);
++            auto * layer_messages = ggml_view_3d(ctx0, messages, n_embd, LOOP_CTRL_COUNT, n_tokens,
++                    messages->nb[1], messages->nb[2], (ip - start)*LOOP_CTRL_COUNT*messages->nb[1]);
++            cur = build_layer(il, ip, cur, blocks, layer_messages, &loop);
+         }
+     }
+ 

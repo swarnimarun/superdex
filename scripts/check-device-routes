@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Validate both expert projection banks and eviction/reset behavior using synthetic bytes.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+plugin="$(pwd)/.runtime/compact-fa-native/current"
+if [[ ! -x "$plugin/check-device-routes" || ! -f "$plugin/libinkling-device-routes.so" ]]; then
+    echo 'Build with ./scripts/build-compact-fa --native first' >&2
+    exit 1
+fi
+export LD_LIBRARY_PATH="$plugin:$(pwd)/.runtime/llama-b12602:$(pwd)/.runtime/cudart-llama-b12602-bin-ubuntu-cuda-12.8-x64:${LD_LIBRARY_PATH:-}"
+exec "$plugin/check-device-routes"

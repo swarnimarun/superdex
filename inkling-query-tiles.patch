@@ -1,0 +1,206 @@
+--- a/src/models/inkling2.cpp
++++ b/src/models/inkling2.cpp
+@@ -355,11 +355,6 @@
+         cb(Vcur, "Vcur", il);
+         cb(Rcur, "Rcur", il);
+ 
+-        ggml_tensor * rel_pos = is_swa ? inp->self_rel_pos_swa : inp->self_rel_pos;
+-
+-        const int64_t n_stream = (is_swa ? attn->self_attn_mask_swa.raw : attn->self_attn_mask.raw)->ne[3];
+-        const int64_t n_kv     = rel_pos->ne[0];
+-
+         ggml_tensor * sinks = build_lora_mm(layer.attn_sink_proj, inputs[0]);
+ 
+         // project r on the bias table first, then gather by distance: only the gathered bias is n_kv x n_tokens x n_head
+@@ -369,15 +364,11 @@
+         table = ggml_sub(ctx0, table, ggml_reshape_3d(ctx0, sinks, 1, n_head, n_tokens));
+         table = ggml_cont(ctx0, ggml_permute(ctx0, table, 1, 0, 2, 3));
+ 
+-        ggml_tensor * kq_b = ggml_get_rows(ctx0, table, rel_pos);
+-        kq_b = ggml_reshape_4d(ctx0, kq_b, n_head, n_kv, n_tokens/n_stream, n_stream);
+-        cb(kq_b, "kq_b_head_major", il);
+-
+         sinks = ggml_fill(ctx0, ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, n_head), 0.0f);
+ 
+         cur = build_attn(inp,
+                 nullptr, nullptr, nullptr,
+-                Qcur, Kcur, Vcur, kq_b, sinks, 1.0f/sqrtf(n_embd_head), il);
++                Qcur, Kcur, Vcur, table, sinks, 1.0f/sqrtf(n_embd_head), il);
+ 
+         cur = ggml_mul(ctx0, cur, ggml_sigmoid(ctx0, build_lora_mm(layer.wqkv_gate, inputs[0])));
+         cur = convolve(build_lora_mm(layer.wo, cur), layer.attn_post_conv, nullptr, state, history, recr, 2*n_embd_k_gqa);
+--- a/src/llama-graph.h
++++ b/src/llama-graph.h
+@@ -1541,7 +1541,7 @@
+             uint32_t extent,
+             uint32_t extent_swa) const;
+ 
+-    // kq_b is the disposable head-major output of the Inkling relative-position gather.
++    // Each query has a projected relative-bias table with one extra row for remote positions.
+     ggml_tensor * build_attn(
+             llm_graph_input_mem_hybrid_iswa_rel * inp,
+             ggml_tensor * wo,
+@@ -1550,7 +1550,7 @@
+             ggml_tensor * q_cur, // [n_embd_head_q, n_head_q, n_tokens]
+             ggml_tensor * k_cur, // [n_embd_head_k, n_head_k, n_tokens]
+             ggml_tensor * v_cur, // [n_embd_head_v, n_head_v, n_tokens]
+-            ggml_tensor * kq_b,  // [n_head_q, n_kv, n_tokens/n_stream, n_stream]
++            ggml_tensor * table, // [n_head_q, extent + 1, n_tokens]
+             ggml_tensor * sinks, // [n_head_q]
+                   float   kq_scale,
+                     int   il) const;
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -21,10 +21,12 @@
+ #include <cmath>
+ #include <algorithm>
+ #include <array>
++#include <cstdlib>
+ #include <cstring>
+ #include <numeric>
+ #include <random>
+ #include <sstream>
++#include <stdexcept>
+ #include <string>
+ #include <unordered_set>
+ 
+@@ -3764,6 +3766,81 @@
+     return cur;
+ }
+ 
++// Inkling's bias depends on each query and head. Materializing it for all queries at once
++// couples expert microbatch size to attention workspace at long context. The query rows
++// are independent once the whole microbatch's K/V has been stored in the cache.
++static ggml_tensor * build_inkling_attn_tiles(
++        const llm_graph_context & gctx,
++        ggml_tensor * q, ggml_tensor * k, ggml_tensor * v,
++        ggml_tensor * table, ggml_tensor * positions, ggml_tensor * raw_mask,
++        ggml_tensor * sinks, float kq_scale, int il) {
++    ggml_context * ctx = gctx.ctx0;
++    const int64_t heads = table->ne[0];
++    const int64_t n_kv = positions->ne[0];
++    const int64_t queries = q->ne[2];
++    const int64_t streams = raw_mask->ne[3];
++    static const int64_t mask_cells = []() -> int64_t {
++        const char * value = std::getenv("INKLING_QUERY_TILE_CELLS");
++        if (!value) {
++            return 512 * 1024;
++        }
++        char * end = nullptr;
++        const long long parsed = std::strtoll(value, &end, 10);
++        if (end == value || *end || parsed < 0 || parsed > INT32_MAX) {
++            throw std::invalid_argument("INKLING_QUERY_TILE_CELLS must be an integer from 0 to 2147483647");
++        }
++        return parsed;
++    }();
++    int64_t tile = queries;
++    // ggml_set_2d_inplace encodes the output offset in fewer than 30 bits.
++    const int64_t output_bytes = queries * heads * v->ne[0] * sizeof(float);
++    if (mask_cells && streams == 1 && !gctx.hparams.is_swa(il) && gctx.cparams.flash_attn &&
++        !gctx.cparams.training && output_bytes < (int64_t(1) << 30)) {
++        // Restrict the size of the dense, per-head gather and the number of extra graph nodes.
++        // Keep full query batches for short prefixes and for small microbatches.
++        const int64_t min_tile = std::max<int64_t>(16, GGML_PAD((queries + 15) / 16, 8));
++        tile = std::min(queries, std::max(min_tile, (mask_cells / n_kv) / 8 * 8));
++    }
++
++    ggml_tensor * result = nullptr;
++    for (int64_t first = 0; first < queries; first += tile) {
++        const int64_t count = std::min(tile, queries - first);
++        ggml_tensor * qt = q;
++        ggml_tensor * tt = table;
++        ggml_tensor * pt = positions;
++        ggml_tensor * mask = raw_mask;
++        if (count != queries) {
++            qt = ggml_view_3d(ctx, q, q->ne[0], q->ne[1], count, q->nb[1], q->nb[2], first*q->nb[2]);
++            tt = ggml_view_3d(ctx, table, heads, table->ne[1], count, table->nb[1], table->nb[2], first*table->nb[2]);
++            pt = ggml_view_2d(ctx, positions, n_kv, count, positions->nb[1], first*positions->nb[1]);
++            mask = ggml_view_2d(ctx, raw_mask, n_kv, count, raw_mask->nb[1], first*raw_mask->nb[1]);
++        }
++        ggml_tensor * bias = ggml_get_rows(ctx, tt, pt);
++        bias = ggml_reshape_4d(ctx, bias, heads, n_kv, count/streams, streams);
++        if (mask->type != GGML_TYPE_F32) {
++            mask = ggml_cast(ctx, mask, GGML_TYPE_F32);
++        }
++        mask = ggml_permute(ctx, mask, 1, 2, 0, 3);
++        mask = ggml_add_inplace(ctx, bias, mask);
++        mask = ggml_permute(ctx, mask, 2, 0, 1, 3);
++        mask = gctx.cparams.flash_attn ? ggml_cast(ctx, mask, GGML_TYPE_F16) : ggml_cont(ctx, mask);
++        gctx.cb(mask, "kq_mask_rel_pos", il);
++
++        auto * part = gctx.build_attn_mha(qt, k, v, nullptr, mask, nullptr, sinks, nullptr, 0, kq_scale, il);
++        if (count == queries) {
++            return part;
++        }
++        if (first == 0) {
++            result = ggml_pad(ctx, part, 0, queries - count, 0, 0);
++        } else {
++            result = ggml_set_2d_inplace(ctx, result, part, result->nb[1], first*result->nb[1]);
++        }
++        // Emit this tile before creating the following tile, so its masks can be recycled.
++        ggml_build_forward_expand(gctx.gf, result);
++    }
++    return result;
++}
++
+ // the iswa build_attn with the KQ mask and kv_rows given by the caller, which has to keep them in sync
+ static ggml_tensor * build_attn_iswa_impl(
+         const llm_graph_context & gctx,
+@@ -3780,7 +3857,9 @@
+         ggml_tensor * sinks,
+         ggml_tensor * v_mla,
+             float     kq_scale,
+-            int       il) {
++            int       il,
++        ggml_tensor * rel_table = nullptr,
++        ggml_tensor * rel_pos = nullptr) {
+     ggml_context * ctx0 = gctx.ctx0;
+     ggml_cgraph  * gf   = gctx.gf;
+ 
+@@ -3846,7 +3925,12 @@
+     ggml_tensor * k = use_kv_cur ? k_cur : mctx_cur->get_k(ctx0, il);
+     ggml_tensor * v = use_kv_cur ? v_cur : mctx_cur->get_v(ctx0, il);
+ 
+-    ggml_tensor * cur = gctx.build_attn_mha(q, k, v, kq_b, kq_mask, kv_rows, sinks, v_mla, 0, kq_scale, il);
++    ggml_tensor * cur;
++    if (rel_table) {
++        cur = build_inkling_attn_tiles(gctx, q, k, v, rel_table, rel_pos, kq_mask, sinks, kq_scale, il);
++    } else {
++        cur = gctx.build_attn_mha(q, k, v, kq_b, kq_mask, kv_rows, sinks, v_mla, 0, kq_scale, il);
++    }
+     cur = build_attn_scale_kv_output(ctx0, mctx_cur, cur, il);
+     gctx.cb(cur, "kqv_out", il);
+ 
+@@ -4486,7 +4570,7 @@
+         ggml_tensor * q_cur,
+         ggml_tensor * k_cur,
+         ggml_tensor * v_cur,
+-        ggml_tensor * kq_b,
++        ggml_tensor * table,
+         ggml_tensor * sinks,
+             float     kq_scale,
+             int       il) const {
+@@ -4500,20 +4584,9 @@
+     //       needs a kv_rows flash attention with a per-head mask (CUDA has none)
+     GGML_ASSERT(attn_mask.rows == nullptr);
+ 
+-    // a mask per head, in the dense layout of the input mask, which flash attention takes in F16
+-    ggml_tensor * kq_mask = attn_mask.raw;
+-    if (kq_mask->type != GGML_TYPE_F32) {
+-        kq_mask = ggml_cast(ctx0, kq_mask, GGML_TYPE_F32);
+-    }
+-    // Broadcast into the gathered [head, key, query, stream] buffer while heads are contiguous.
+-    // The conversion can read the permuted view directly, saving a full FP32 transpose.
+-    kq_mask = ggml_permute(ctx0, kq_mask, 1, 2, 0, 3);
+-    kq_mask = ggml_add_inplace(ctx0, kq_b, kq_mask);
+-    kq_mask = ggml_permute(ctx0, kq_mask, 2, 0, 1, 3);
+-    kq_mask = cparams.flash_attn ? ggml_cast(ctx0, kq_mask, GGML_TYPE_F16) : ggml_cont(ctx0, kq_mask);
+-    cb(kq_mask, "kq_mask_rel_pos", il);
+-
+-    return build_attn_iswa_impl(*this, inp_attn, wo, wo_b, wo_s, q_cur, k_cur, v_cur, nullptr, kq_mask, nullptr, sinks, nullptr, kq_scale, il);
++    ggml_tensor * positions = is_swa ? inp->self_rel_pos_swa : inp->self_rel_pos;
++    return build_attn_iswa_impl(*this, inp_attn, wo, wo_b, wo_s, q_cur, k_cur, v_cur, nullptr,
++            attn_mask.raw, nullptr, sinks, nullptr, kq_scale, il, table, positions);
+ }
+ 
+ void llm_graph_context::build_dense_out(

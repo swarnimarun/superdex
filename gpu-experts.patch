@@ -1,0 +1,110 @@
+--- a/ggml/src/ggml-backend.cpp
++++ b/ggml/src/ggml-backend.cpp
+@@ -14,6 +14,7 @@
+ #include "ggml-impl.h"
+ 
+ #include <assert.h>
++#include <inttypes.h>
+ #include <limits.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+@@ -1281,6 +1282,11 @@
+     size_t context_buffer_size;
+ 
+     bool op_offload;
++    bool require_gpu_experts;
++    int expert_backend_id;
++    int expert_matmuls;
++    int64_t expert_batch;
++    bool expert_phase_logged[2];
+ 
+     int debug;
+ 
+@@ -1558,6 +1564,20 @@
+     for (int i = 0; i < graph->n_nodes; i++) {
+         struct ggml_tensor * node = graph->nodes[i];
+         int * node_backend_id = &tensor_backend_id(node);
++        if (sched->require_gpu_experts && node->op == GGML_OP_MUL_MAT_ID) {
++            const int gpu = sched->expert_backend_id;
++            if (gpu < 0 || !ggml_backend_supports_op(sched->backends[gpu], node)) {
++                GGML_ABORT("Inkling requires CUDA0 support for %s (%s, weight type %s)",
++                           ggml_op_name(node->op), node->name, ggml_type_name(node->src[0]->type));
++            }
++            if (node->buffer && !ggml_backend_supports_buft(sched->backends[gpu], node->buffer->buft)) {
++                GGML_ABORT("Inkling expert output %s was preallocated outside CUDA0", node->name);
++            }
++            // Pin the computation. Its selected weights can still be copied from host memory.
++            *node_backend_id = gpu;
++            SET_CAUSE(node, "expert");
++            continue;
++        }
+         // do not overwrite user assignments
+         if (*node_backend_id == -1) {
+             *node_backend_id = ggml_backend_sched_backend_id_from_cur(sched, node);
+@@ -1869,6 +1889,29 @@
+         sched->n_splits = i_split + 1;
+     }
+ 
++    if (sched->require_gpu_experts) {
++        sched->expert_matmuls = 0;
++        sched->expert_batch = 0;
++        // Verify the final execution splits, including branches enabled on later graph reuse.
++        for (int s = 0; s < sched->n_splits; ++s) {
++            const auto & split = sched->splits[s];
++            for (int i = split.i_start; i < split.i_end; ++i) {
++                const auto * node = graph->nodes[i];
++                if (node->op != GGML_OP_MUL_MAT_ID) {
++                    continue;
++                }
++                if (split.backend_id != sched->expert_backend_id) {
++                    GGML_ABORT("Inkling expert operation %s assigned to %s", node->name,
++                               ggml_backend_name(sched->backends[split.backend_id]));
++                }
++                if (node->flags & GGML_TENSOR_FLAG_COMPUTE) {
++                    ++sched->expert_matmuls;
++                    sched->expert_batch = std::max(sched->expert_batch, node->ne[2]);
++                }
++            }
++        }
++    }
++
+     if (sched->debug) {
+         ggml_backend_sched_print_assignments(sched, graph);
+     }
+@@ -2257,6 +2300,15 @@
+ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t sched) {
+     GGML_ASSERT(sched);
+     struct ggml_backend_sched_split * splits = sched->splits;
++    if (sched->expert_matmuls > 0) {
++        const bool prefill = sched->expert_batch > 1;
++        if (!sched->expert_phase_logged[prefill]) {
++            GGML_LOG_INFO("Inkling GPU experts: backend=%s phase=%s ubatch=%" PRId64 " routed_matmuls=%d\n",
++                          ggml_backend_name(sched->backends[sched->expert_backend_id]),
++                          prefill ? "prefill" : "decode", sched->expert_batch, sched->expert_matmuls);
++            sched->expert_phase_logged[prefill] = true;
++        }
++    }
+ 
+     int prev_backend_id = -1;
+ 
+@@ -2356,6 +2408,20 @@
+ 
+     struct ggml_backend_sched * sched = (ggml_backend_sched *) calloc(1, sizeof(struct ggml_backend_sched));
+ 
++    const char * gpu_experts = getenv("INKLING_GPU_EXPERTS");
++    sched->require_gpu_experts = gpu_experts && strcmp(gpu_experts, "1") == 0;
++    sched->expert_backend_id = -1;
++    if (sched->require_gpu_experts) {
++        // CUDA_VISIBLE_DEVICES exposes just the selected NVIDIA device to this process.
++        for (int i = 0; i < n_backends; ++i) {
++            if (strcmp(ggml_backend_name(backends[i]), "CUDA0") == 0 &&
++                    ggml_backend_dev_type(ggml_backend_get_device(backends[i])) == GGML_BACKEND_DEVICE_TYPE_GPU) {
++                sched->expert_backend_id = i;
++                break;
++            }
++        }
++    }
++
+     const char * GGML_SCHED_DEBUG = getenv("GGML_SCHED_DEBUG");
+     sched->debug = GGML_SCHED_DEBUG ? atoi(GGML_SCHED_DEBUG) : 0;
+ 

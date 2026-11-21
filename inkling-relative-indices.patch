@@ -1,0 +1,246 @@
+--- /dev/null
++++ b/src/inkling-relative-indices.h
+@@ -0,0 +1,72 @@
++#pragma once
++
++#include <algorithm>
++#include <cstdint>
++#include <cstdlib>
++#include <limits>
++#include <stdexcept>
++#include <string>
++#include <utility>
++#include <vector>
++
++inline bool inkling_rel_flag(const char * name) {
++    const char * s = std::getenv(name);
++    if (!s || !*s || (s[0] == '0' && !s[1])) {
++        return false;
++    }
++    if (s[0] != '1' || s[1]) {
++        throw std::invalid_argument(std::string(name) + " must be 0 or 1");
++    }
++    return true;
++}
++
++// For every query in this sequence, remote valid keys share the last learned
++// bucket and blocked keys share a separate -infinity bucket in packed mode.
++template<class ReadKey>
++void inkling_relative_indices(int32_t * data, uint32_t n_kv, int32_t extent, bool packed,
++        const std::vector<std::pair<uint32_t, int32_t>> & queries, ReadKey read_key) {
++    if (queries.empty()) {
++        return;
++    }
++    const int32_t blocked = packed ? extent + 1 : extent;
++    auto bucket = [=](int32_t query, int32_t key) {
++        if (key < 0 || key > query) {
++            return blocked;
++        }
++        return int32_t(std::min<int64_t>(extent, int64_t(query) - key));
++    };
++    if (queries.size() == 1) {
++        const auto [row, query] = queries.front();
++        auto * dst = data + size_t(row) * n_kv;
++        for (uint32_t j = 0; j < n_kv; ++j) {
++            dst[j] = bucket(query, read_key(j));
++        }
++        return;
++    }
++    int32_t low = std::numeric_limits<int32_t>::max();
++    int32_t high = std::numeric_limits<int32_t>::min();
++    for (const auto & row : queries) {
++        low = std::min(low, row.second);
++        high = std::max(high, row.second);
++    }
++    std::vector<int32_t> background(n_kv, blocked);
++    std::vector<std::pair<uint32_t, int32_t>> recent;
++    for (uint32_t j = 0; j < n_kv; ++j) {
++        const int32_t key = read_key(j);
++        if (key < 0 || key > high) {
++            continue;
++        }
++        if (key <= int64_t(low) - extent) {
++            background[j] = extent;
++        } else {
++            recent.emplace_back(j, key);
++        }
++    }
++    for (const auto [row, query] : queries) {
++        int32_t * dst = data + size_t(row) * n_kv;
++        std::copy(background.begin(), background.end(), dst);
++        for (const auto [j, key] : recent) {
++            dst[j] = bucket(query, key);
++        }
++    }
++}
+--- a/src/llama-graph.h
++++ b/src/llama-graph.h
+@@ -814,6 +814,7 @@
+     const llama_cparams cparams;
+ 
+     const llama_memory_hybrid_iswa_context * mctx;
++    bool packed_global = false;
+ };
+ 
+ class llm_graph_input_sampling : public llm_graph_input_i {
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -1,4 +1,5 @@
+ #include "inkling-host-global-kv.h"
++#include "inkling-relative-indices.h"
+ 
+ #include "llama-graph.h"
+ 
+@@ -1418,7 +1419,7 @@
+     }
+ 
+     if (self_rel_pos->buffer) {
+-        attn_ctx->get_base()->set_input_relative_pos(self_rel_pos, ubatch, extent);
++        attn_ctx->get_base()->set_input_relative_pos(self_rel_pos, ubatch, extent, packed_global);
+     }
+ 
+     // swa tensors may not be allocated if there are no SWA attention layers
+@@ -3813,6 +3814,13 @@
+ // Inkling's bias depends on each query and head. Materializing it for all queries at once
+ // couples expert microbatch size to attention workspace at long context. The query rows
+ // are independent once the whole microbatch's K/V has been stored in the cache.
++static bool inkling_pack_global_mask(const llm_graph_context & gctx) {
++    static const bool enabled = inkling_rel_flag("INKLING_PACK_GLOBAL_MASK");
++    return enabled && gctx.model.arch == LLM_ARCH_INKLING2_LOOP && !gctx.hparams.use_alibi &&
++           gctx.hparams.n_pos_per_embd() == 1 && gctx.cparams.flash_attn &&
++           gctx.cparams.causal_attn && !gctx.cparams.training;
++}
++
+ static ggml_tensor * build_inkling_attn_tiles(
+         const llm_graph_context & gctx,
+         ggml_tensor * q, ggml_tensor * k, ggml_tensor * v,
+@@ -3846,6 +3854,7 @@
+         tile = std::min(queries, std::max(min_tile, (mask_cells / n_kv) / 8 * 8));
+     }
+ 
++    const bool packed = !gctx.hparams.is_swa(il) && inkling_pack_global_mask(gctx);
+     auto * target = inkling_attention_backend(gctx, il);
+     const bool share_kv = target && target != gctx.backend_cpu && gctx.cparams.flash_attn && v->nb[1] <= v->nb[2];
+     if (share_kv) {
+@@ -3865,7 +3874,17 @@
+             qt = ggml_view_3d(ctx, q, q->ne[0], q->ne[1], count, q->nb[1], q->nb[2], first*q->nb[2]);
+             tt = ggml_view_3d(ctx, table, heads, table->ne[1], count, table->nb[1], table->nb[2], first*table->nb[2]);
+             pt = ggml_view_2d(ctx, positions, n_kv, count, positions->nb[1], first*positions->nb[1]);
+-            mask = ggml_view_2d(ctx, raw_mask, n_kv, count, raw_mask->nb[1], first*raw_mask->nb[1]);
++            if (!packed) {
++                mask = ggml_view_2d(ctx, raw_mask, n_kv, count, raw_mask->nb[1], first*raw_mask->nb[1]);
++            }
++        }
++        if (packed) {
++            // The raw additive mask uses +0 for a visible key. Add it to the
++            // compact table first to retain its behavior for signed zero.
++            auto * keep = ggml_fill(ctx, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 1), 0.0f);
++            tt = ggml_add(ctx, tt, keep);
++            auto * blocked = ggml_fill(ctx, ggml_new_tensor_3d(ctx, GGML_TYPE_F32, heads, 1, count), -INFINITY);
++            tt = ggml_concat(ctx, tt, blocked, 1);
+         }
+         ggml_tensor * bias = ggml_get_rows(ctx, tt, pt);
+         // Keep the large per-head mask beside its attention. The learned table is small.
+@@ -3873,11 +3892,15 @@
+             ggml_backend_sched_set_tensor_backend(gctx.sched, bias, target);
+         }
+         bias = ggml_reshape_4d(ctx, bias, heads, n_kv, count/streams, streams);
+-        if (mask->type != GGML_TYPE_F32) {
+-            mask = ggml_cast(ctx, mask, GGML_TYPE_F32);
+-        }
+-        mask = ggml_permute(ctx, mask, 1, 2, 0, 3);
+-        mask = ggml_add_inplace(ctx, bias, mask);
++        if (packed) {
++            mask = bias;
++        } else {
++            if (mask->type != GGML_TYPE_F32) {
++                mask = ggml_cast(ctx, mask, GGML_TYPE_F32);
++            }
++            mask = ggml_permute(ctx, mask, 1, 2, 0, 3);
++            mask = ggml_add_inplace(ctx, bias, mask);
++        }
+         mask = ggml_permute(ctx, mask, 2, 0, 1, 3);
+         mask = gctx.cparams.flash_attn ? ggml_cast(ctx, mask, GGML_TYPE_F16) : ggml_cont(ctx, mask);
+         if (target) {
+@@ -4613,6 +4636,7 @@
+ 
+     auto inp = std::make_unique<llm_graph_input_mem_hybrid_iswa_rel>(cparams, std::move(inp_attn), std::move(inp_rs), mctx_cur, extent, extent_swa);
+ 
++    inp->packed_global = inkling_pack_global_mask(*this);
+     inp->self_rel_pos = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, attn_ctx->get_base()->get_n_kv(), ubatch.n_tokens);
+     ggml_set_input(inp->self_rel_pos);
+     ggml_set_name(inp->self_rel_pos, "attn_inp_rel_pos");
+--- a/src/llama-kv-cache.h
++++ b/src/llama-kv-cache.h
+@@ -249,7 +249,7 @@
+ 
+     void set_input_attn_mask (const llm_attn_mask & attn_mask, const llama_ubatch * ubatch, bool causal_attn) const;
+     void set_input_pos_bucket(ggml_tensor * dst, const llama_ubatch * ubatch) const;
+-    void set_input_relative_pos(ggml_tensor * dst, const llama_ubatch * ubatch, uint32_t extent) const;
++    void set_input_relative_pos(ggml_tensor * dst, const llama_ubatch * ubatch, uint32_t extent, bool packed = false) const;
+ 
+     // true if llama_kv_cell_ext holds information that has to survive a state save/restore
+     bool has_cell_ext() const;
+@@ -454,7 +454,7 @@
+     void set_input_k_shift   (ggml_tensor * dst) const;
+     void set_input_attn_mask (const llm_attn_mask & attn_mask, const llama_ubatch * ubatch, bool causal_attn) const;
+     void set_input_pos_bucket(ggml_tensor * dst, const llama_ubatch * ubatch) const;
+-    void set_input_relative_pos(ggml_tensor * dst, const llama_ubatch * ubatch, uint32_t extent) const;
++    void set_input_relative_pos(ggml_tensor * dst, const llama_ubatch * ubatch, uint32_t extent, bool packed = false) const;
+ 
+     // see llama_kv_cache::get_prev_tokens()
+     void get_prev_tokens(const llama_ubatch & ubatch, uint32_t n, std::vector<llama_token> & res) const;
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -1,4 +1,5 @@
+ #include "inkling-host-global-kv.h"
++#include "inkling-relative-indices.h"
+ 
+ #include "llama-kv-cache.h"
+ 
+@@ -2023,9 +2024,33 @@
+     return hparams.n_pos_per_embd() > 1 || hparams.ple_n_heads > 0;
+ }
+ 
+-void llama_kv_cache::set_input_relative_pos(ggml_tensor * dst, const llama_ubatch * ubatch, uint32_t extent) const {
++void llama_kv_cache::set_input_relative_pos(ggml_tensor * dst, const llama_ubatch * ubatch, uint32_t extent, bool packed) const {
+     GGML_ASSERT(dst->type == GGML_TYPE_I32);
+     const int64_t n_kv = dst->ne[0];
++    static const bool fast = inkling_rel_flag("INKLING_FAST_REL_POS");
++    if (fast || packed) {
++        GGML_ASSERT(ggml_is_contiguous(dst));
++        std::vector<int32_t> staging;
++        const bool host = ggml_backend_buffer_is_host(dst->buffer);
++        if (!host) {
++            staging.resize(n_kv * ubatch->n_tokens);
++        }
++        auto * data = host ? static_cast<int32_t *>(dst->data) : staging.data();
++        std::map<llama_seq_id, std::vector<std::pair<uint32_t, int32_t>>> groups;
++        for (uint32_t i = 0; i < ubatch->n_tokens; ++i) {
++            groups[ubatch->seq_id[i][0]].emplace_back(i, ubatch->pos[i]);
++        }
++        for (const auto & [seq, queries] : groups) {
++            const auto & cells = v_cells.at(seq_to_stream.at(seq));
++            inkling_relative_indices(data, n_kv, extent, packed, queries, [&](uint32_t j) -> int32_t {
++                return cells.is_empty(j) || (packed && !cells.seq_has(j, seq)) ? -1 : cells.pos_get(j);
++            });
++        }
++        if (!host) {
++            ggml_backend_tensor_set(dst, staging.data(), 0, ggml_nbytes(dst));
++        }
++        return;
++    }
+     std::vector<int32_t> data(n_kv * ubatch->n_tokens);
+     for (uint32_t i = 0; i < ubatch->n_tokens; ++i) {
+         const auto & cells = v_cells.at(seq_to_stream.at(ubatch->seq_id[i][0]));
+@@ -3140,8 +3165,8 @@
+     kv->set_input_pos_bucket(dst, ubatch);
+ }
+ 
+-void llama_kv_cache_context::set_input_relative_pos(ggml_tensor * dst, const llama_ubatch * ubatch, uint32_t extent) const {
+-    kv->set_input_relative_pos(dst, ubatch, extent);
++void llama_kv_cache_context::set_input_relative_pos(ggml_tensor * dst, const llama_ubatch * ubatch, uint32_t extent, bool packed) const {
++    kv->set_input_relative_pos(dst, ubatch, extent, packed);
+ }
+ 
+ void llama_kv_cache_context::get_prev_tokens(const llama_ubatch & ubatch, uint32_t n, std::vector<llama_token> & res) const {

@@ -1,0 +1,66 @@
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -369,6 +369,7 @@
+     };
+ 
+     static constexpr int64_t max_batch = 32;
++    int64_t max_lookup_batch = max_batch;
+ 
+     int32_t n_expert_used;
+ 
+@@ -512,12 +513,44 @@
+             }
+             write_trace_header(split_sum);
+         }
++        // A compact microbatch needs room for all selected experts in each group.
++        // Transfer budget from groups with spare slots only when they can cover the deficit.
++        int floor_tokens = 0;
++        if (const char * value = getenv("INKLING_MOE_CACHE_UBATCH_FLOOR")) {
++            char * end = nullptr;
++            const long parsed = std::strtol(value, &end, 10);
++            if (end == value || *end || parsed < 0 || parsed > INT32_MAX) {
++                throw std::runtime_error("Invalid INKLING_MOE_CACHE_UBATCH_FLOOR (expected a nonnegative 32-bit integer)");
++            }
++            floor_tokens = (int) parsed;
++            max_lookup_batch = std::max<int64_t>(max_batch, floor_tokens);
++        }
++        auto fraction = [&](const group & g) {
++            const device & d = devices[g.id];
++            return (size_t) ((double) size*d.split/split_sum*g.host_bytes/d.host_bytes);
++        };
++        auto minimum = [&](const group & g) {
++            const int slots = std::min<int64_t>(g.ref[0]->ne[2], (int64_t) floor_tokens*n_expert_used);
++            return alloc_size(g, slots);
++        };
++        std::vector<size_t> deficit(devices.size(), 0), surplus(devices.size(), 0);
++        if (floor_tokens > 0) {
++            for (const group & g : groups) {
++                const size_t share = fraction(g), floor = minimum(g);
++                if (share < floor) { deficit[g.id] += floor - share; }
++                else               { surplus[g.id] += share - floor; }
++            }
++        }
+         std::vector<size_t> n_tensors(devices.size(), 0);
+         size_t n_tensors_host = 0;
+         for (group & g : groups) {
+-            const device & d = devices[g.id];
+             const int32_t n_expert  = g.ref[0]->ne[2];
+-            const size_t  budget    = (size_t) ((double) size*d.split/split_sum*g.host_bytes/d.host_bytes);
++            size_t budget = fraction(g);
++            if (deficit[g.id] > 0 && deficit[g.id] <= surplus[g.id]) {
++                const size_t floor = minimum(g);
++                budget = budget <= floor ? floor : budget - (size_t) std::ceil(
++                        (double) (budget - floor)*deficit[g.id]/surplus[g.id]);
++            }
+             const int32_t max_slots = g.unique_layers*n_expert;
+             while (g.n_slots < max_slots && alloc_size(g, g.n_slots + 1) <= budget) {
+                 g.n_slots++;
+@@ -708,7 +741,7 @@
+         const layer & l = layers[il];
+ 
+         // large batches use most experts of a layer, so they gain little from the cache and would evict the experts used in generation
+-        if (n_tokens == 0 || n_tokens > max_batch || std::min(n_tokens*n_expert_used, l.slot_map->ne[1]) > groups[l.ig].n_slots) {
++        if (n_tokens == 0 || n_tokens > max_lookup_batch || std::min(n_tokens*n_expert_used, l.slot_map->ne[1]) > groups[l.ig].n_slots) {
+             return nullptr;
+         }
+         GGML_ASSERT(!cpu_part || l.slot_map_cpu != nullptr);

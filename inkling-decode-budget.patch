@@ -1,0 +1,132 @@
+--- a/ggml/include/ggml-backend.h
++++ b/ggml/include/ggml-backend.h
+@@ -33,6 +33,9 @@
+     //
+     // Backend buffer type
+     //
++
++    // Remaining shared CUDA0 allocator allowance, in bytes. Zero when no limit is configured.
++    GGML_API size_t inkling_cuda_budget_available(void);
+ 
+     GGML_API const char *          ggml_backend_buft_name            (ggml_backend_buffer_type_t buft);
+     GGML_API ggml_backend_buffer_t ggml_backend_buft_alloc_buffer    (ggml_backend_buffer_type_t buft, size_t size);
+--- a/ggml/src/ggml-backend.cpp
++++ b/ggml/src/ggml-backend.cpp
+@@ -55,6 +55,12 @@
+ static cuda_buffer_budget & buffer_budget() {
+     static cuda_buffer_budget budget;
+     return budget;
++}
++
++size_t inkling_cuda_budget_available(void) {
++    auto & budget = buffer_budget();
++    std::lock_guard<std::mutex> lock(budget.mutex);
++    return budget.limit > budget.live ? budget.limit - budget.live : 0;
+ }
+ 
+ ggml_backend_buffer_t ggml_backend_buft_alloc_buffer(ggml_backend_buffer_type_t buft, size_t size) {
+--- a/src/llama-context.h
++++ b/src/llama-context.h
+@@ -516,6 +516,7 @@
+ 
+     // Optional single-slot Inkling decode cache. Model tensors and sequence memory stay resident.
+     size_t phase_cache_extra = 0;
++    size_t phase_cache_headroom = 0;
+     size_t phase_cache_gpu = 0;
+     int phase_cache_streak = 0;
+     bool phase_cache_decode = false;
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -3,6 +3,7 @@
+ #include "llama-context.h"
+ 
+ #include "ggml.h"
++#include "ggml-backend.h"
+ #include "llama-arch.h"
+ #include "llama-graph.h"
+ #include "llama-impl.h"
+@@ -19,6 +20,7 @@
+ #include <algorithm>
+ #include <cinttypes>
+ #include <cmath>
++#include <cstdlib>
+ #include <cstring>
+ #include <limits>
+ #include <stdexcept>
+@@ -28,6 +30,20 @@
+ //
+ // llama_context
+ //
++
++static size_t inkling_cache_limit_bytes(const char * name) {
++    const char * value = std::getenv(name);
++    if (!value) {
++        return 0;
++    }
++    char * end = nullptr;
++    const long mib = std::strtol(value, &end, 10);
++    if (end == value || *end != '\0' || mib < 0 || mib > 16384 ||
++            static_cast<unsigned long>(mib) > (std::numeric_limits<size_t>::max() >> 20)) {
++        throw std::runtime_error(std::string(name) + " must be an integer from 0 to 16384");
++    }
++    return static_cast<size_t>(mib) << 20;
++}
+ 
+ // check that each folded weight in the graph gets its Hadamard transform, and each latent lookup gets the inverse
+ // without this check, an arch that skips the transform helpers loads and computes wrong results
+@@ -622,20 +638,15 @@
+         }
+ 
+         sched_reserve();
+-        if (const char * value = std::getenv("INKLING_DECODE_CACHE_EXTRA_MIB")) {
+-            char * end = nullptr;
+-            const long extra = std::strtol(value, &end, 10);
+-            if (end == value || *end || extra < 0 || extra > 16384) {
+-                throw std::runtime_error("INKLING_DECODE_CACHE_EXTRA_MIB must be from 0 to 16384");
+-            }
+-            if (extra && !model.no_alloc() && model.arch == LLM_ARCH_INKLING2_LOOP && moe_cache &&
+-                !cparams.training && !cparams.pipeline_parallel && cparams.n_seq_max == 1 &&
+-                cparams.moe_cache_cpu_share == 0 && model.devices.size() == 1) {
+-                for (size_t i = 0; i < backend_ptrs.size(); ++i) {
+-                    if (std::strcmp(ggml_backend_name(backend_ptrs[i]), "CUDA0") == 0) {
+-                        phase_cache_gpu = i;
+-                        phase_cache_extra = static_cast<size_t>(extra) << 20;
+-                    }
++        const size_t extra = inkling_cache_limit_bytes("INKLING_DECODE_CACHE_EXTRA_MIB");
++        phase_cache_headroom = inkling_cache_limit_bytes("INKLING_DECODE_CACHE_HEADROOM_MIB");
++        if (extra && !model.no_alloc() && model.arch == LLM_ARCH_INKLING2_LOOP && moe_cache &&
++            !cparams.training && !cparams.pipeline_parallel && cparams.n_seq_max == 1 &&
++            cparams.moe_cache_cpu_share == 0 && model.devices.size() == 1) {
++            for (size_t i = 0; i < backend_ptrs.size(); ++i) {
++                if (std::strcmp(ggml_backend_name(backend_ptrs[i]), "CUDA0") == 0) {
++                    phase_cache_gpu = i;
++                    phase_cache_extra = extra;
+                 }
+             }
+         }
+@@ -845,7 +856,11 @@
+     auto * buft = backend_buft[phase_cache_gpu];
+     const size_t prefill_scratch = ggml_backend_sched_get_buffer_size(sched.get(), device);
+     const size_t old_cache = moe_cache->memory_breakdown().at(buft);
+-    const size_t envelope = prefill_scratch + old_cache;
++    // Query while prefill scratch and the old cache are still charged. Allocation
++    // subsequently rechecks the same global budget under the allocator lock.
++    const size_t spare = phase_cache_headroom ? std::min(phase_cache_headroom, inkling_cuda_budget_available()) : 0;
++    const size_t reusable = prefill_scratch + spare;
++    const size_t envelope = reusable + old_cache;
+     const size_t guard = 128ull << 20;
+     constexpr double mib = 1048576.0;
+     bool replaced_cache = false;
+@@ -858,10 +873,10 @@
+             throw std::runtime_error("cannot size one-token full-context graph");
+         }
+         const size_t decode_scratch = sizes[phase_cache_gpu];
+-        if (prefill_scratch <= decode_scratch + guard) {
++        if (reusable <= decode_scratch + guard) {
+             throw std::runtime_error("insufficient reusable prefill scratch");
+         }
+-        const size_t extra = std::min(phase_cache_extra, prefill_scratch - decode_scratch - guard);
++        const size_t extra = std::min(phase_cache_extra, reusable - decode_scratch - guard);
+         const size_t requested = old_cache + extra;
+         // No prefill backing buffers or expert replicas overlap the new allocation.
+         phase_cache_clear_compute();

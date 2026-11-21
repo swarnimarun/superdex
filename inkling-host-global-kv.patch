@@ -1,0 +1,154 @@
+--- /dev/null
++++ b/src/inkling-host-global-kv.h
+@@ -0,0 +1,32 @@
++#pragma once
++
++#include "llama-model.h"
++
++#include <cstdlib>
++#include <stdexcept>
++
++// Repeated passes have distinct logical KV layers. Select the first N global
++// caches in allocation order, independently of the model's expert weight device.
++inline bool inkling_host_global_kv(const llama_model & model, int il) {
++    static const int count = []() -> int {
++        const char * value = std::getenv("INKLING_HOST_GLOBAL_KV");
++        if (!value || !*value) {
++            return 0;
++        }
++        if (value[0] < '0' || value[0] > '8' || value[1]) {
++            throw std::invalid_argument("INKLING_HOST_GLOBAL_KV must be an integer from 0 to 8");
++        }
++        return value[0] - '0';
++    }();
++    const auto & hp = model.hparams;
++    if (!count || model.arch != LLM_ARCH_INKLING2_LOOP || il < 0 || !hp.has_kv(il) || hp.is_swa(il)) {
++        return false;
++    }
++    int remaining = count;
++    for (int layer = 0; layer < il; ++layer) {
++        if (hp.has_kv(layer) && !hp.is_swa(layer) && --remaining == 0) {
++            return false;
++        }
++    }
++    return true;
++}
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -1,3 +1,5 @@
++#include "inkling-host-global-kv.h"
++
+ #include "llama-kv-cache.h"
+ 
+ #include "llama-impl.h"
+@@ -213,7 +215,11 @@
+ 
+         ggml_backend_buffer_type_t buft = ggml_backend_cpu_buffer_type();
+ 
+-        if (offload) {
++        const bool host_global = inkling_host_global_kv(model, il);
++        if (host_global) {
++            LLAMA_LOG_INFO("Inkling global KV: layer=%u device=CPU\n", il);
++        }
++        if (offload && !host_global) {
+             auto * dev = model.dev_layer(il);
+             buft = ggml_backend_dev_buffer_type(dev);
+ 
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -1,3 +1,5 @@
++#include "inkling-host-global-kv.h"
++
+ #include "llama-context.h"
+ 
+ #include "ggml.h"
+@@ -691,6 +693,9 @@
+             // TODO: make this descriptor-specific; model.dev_layer() preserves the current behavior,
+             // but is still wrong for cases like --no-kv-offload.
+             ggml_backend_dev_t device_layer = model.dev_layer(node.il);
++            if (probe.op == LLM_FUSED_OP_FLASH_ATTN && inkling_host_global_kv(model, node.il)) {
++                device_layer = ggml_backend_get_device(backend_cpu);
++            }
+ 
+             if (device_fused != device_layer) {
+                 LLAMA_LOG_WARN("%s: layer %d is assigned to device %s but %s "
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -1,3 +1,5 @@
++#include "inkling-host-global-kv.h"
++
+ #include "llama-graph.h"
+ 
+ #include "llama-impl.h"
+@@ -3200,6 +3202,7 @@
+ 
+     ggml_tensor * cur;
+ 
++    const bool host_kv = inkling_host_global_kv(model, il);
+     const bool use_flash_attn = cparams.flash_attn && kq_b == nullptr;
+     GGML_ASSERT(use_flash_attn || kv_rows == nullptr);
+     if (use_flash_attn) {
+@@ -3231,6 +3234,13 @@
+         GGML_ASSERT(n_kv_max >= 0 && n_kv_max <= INT32_MAX);
+         ggml_flash_attn_ext_set_n_kv_max(cur, static_cast<int32_t>(n_kv_max));
+         ggml_prec_set_acc(cur, GGML_PREC_F32);
++        if (host_kv) {
++            if (ggml_backend_supports_op(backend_cpu, cur)) {
++                ggml_backend_sched_set_tensor_backend(sched, cur, backend_cpu);
++            } else if (!cparams.auto_fa) {
++                throw std::runtime_error("requested Flash Attention is unsupported for CPU global KV");
++            }
++        }
+ 
+         if (v_mla) {
+ #if 0
+@@ -3252,6 +3262,9 @@
+         cur = ggml_reshape_2d(ctx0, cur, cur->ne[0]*cur->ne[1], cur->ne[2]*cur->ne[3]);
+     } else {
+         ggml_tensor * kq = ggml_mul_mat(ctx0, k, q);
++        if (host_kv) {
++            ggml_backend_sched_set_tensor_backend(sched, kq, backend_cpu);
++        }
+         cb(kq, "kq", il);
+ 
+         ggml_prec_set_acc(kq, GGML_PREC_BF16);
+@@ -3294,6 +3307,9 @@
+         }
+ 
+         ggml_tensor * kqv = ggml_mul_mat(ctx0, v, kq);
++        if (host_kv) {
++            ggml_backend_sched_set_tensor_backend(sched, kqv, backend_cpu);
++        }
+         cb(kqv, "kqv", il);
+ 
+         // for MLA with the absorption optimization, we need to "decompress" from MQA back to MHA
+@@ -3307,7 +3323,7 @@
+         // recombine streams
+         cur = ggml_cont_2d(ctx0, cur, cur->ne[0]*cur->ne[1], cur->ne[2]*cur->ne[3]);
+ 
+-        if (!cparams.offload_kqv) {
++        if (!cparams.offload_kqv || host_kv) {
+             // all nodes between the KV store and the attention output are run on the CPU
+             ggml_backend_sched_set_tensor_backend(sched, cur, backend_cpu);
+         }
+@@ -3816,6 +3832,10 @@
+             mask = ggml_view_2d(ctx, raw_mask, n_kv, count, raw_mask->nb[1], first*raw_mask->nb[1]);
+         }
+         ggml_tensor * bias = ggml_get_rows(ctx, tt, pt);
++        // Keep the large per-head mask beside its attention. The learned table is small.
++        if (inkling_host_global_kv(gctx.model, il)) {
++            ggml_backend_sched_set_tensor_backend(gctx.sched, bias, gctx.backend_cpu);
++        }
+         bias = ggml_reshape_4d(ctx, bias, heads, n_kv, count/streams, streams);
+         if (mask->type != GGML_TYPE_F32) {
+             mask = ggml_cast(ctx, mask, GGML_TYPE_F32);
+@@ -3824,6 +3844,9 @@
+         mask = ggml_add_inplace(ctx, bias, mask);
+         mask = ggml_permute(ctx, mask, 2, 0, 1, 3);
+         mask = gctx.cparams.flash_attn ? ggml_cast(ctx, mask, GGML_TYPE_F16) : ggml_cont(ctx, mask);
++        if (inkling_host_global_kv(gctx.model, il)) {
++            ggml_backend_sched_set_tensor_backend(gctx.sched, mask, gctx.backend_cpu);
++        }
+         gctx.cb(mask, "kq_mask_rel_pos", il);
+ 
+         auto * part = gctx.build_attn_mha(qt, k, v, nullptr, mask, nullptr, sinks, nullptr, 0, kq_scale, il);

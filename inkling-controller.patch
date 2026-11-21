@@ -1,0 +1,85 @@
+--- a/src/models/inkling2.cpp
++++ b/src/models/inkling2.cpp
+@@ -1,4 +1,6 @@
+ #include "models.h"
++#include <cstring>
++extern "C" bool inkling_controller_available() __attribute__((weak));
+ #include "../llama-memory-hybrid-iswa.h"
+ 
+ void llama_model_inkling2::load_arch_hparams(llama_model_loader & ml) {
+@@ -311,7 +313,74 @@
+         }
+     }
+ 
+-    if (messages) {
++    // A loaded SM120 plug-in groups the three independent FP32 decode controllers.
++    // The ordinary graph handles other shapes, devices, weight formats and adapters.
++    ggml_backend_t controller_backend = nullptr;
++    if (messages && n_tokens == 1 && n_embd == 2304 && messages->type == GGML_TYPE_F32 &&
++        messages->ne[0] == n_embd && messages->ne[1] >= 3 && messages->nb[0] == sizeof(float) &&
++        messages->nb[1] % 16 == 0 && messages->view_offs % 16 == 0 && !(loras && !loras->empty()) &&
++        inkling_controller_available && inkling_controller_available() &&
++        !strcmp(ggml_backend_dev_name(model.dev_layer(il)), "CUDA0")) {
++        for (int i = 0; i < ggml_backend_sched_get_n_backends(sched); ++i) {
++            auto *backend = ggml_backend_sched_get_backend(sched, i);
++            if (ggml_backend_get_device(backend) == model.dev_layer(il)) {
++                controller_backend = backend;
++                break;
++            }
++        }
++        for (auto *input : inputs) {
++            if (input->type != GGML_TYPE_F32 || !ggml_is_contiguous(input) || ggml_nelements(input) != n_embd ||
++                input->view_offs % 16 != 0) {
++                controller_backend = nullptr;
++            }
++        }
++    }
++    if (controller_backend) {
++        for (int j = 0; j < 3; ++j) {
++            const int id = LOOP_CTRL_Q + j;
++            for (auto *weight : {loop->ctrl_down[id], loop->ctrl_gain[id], loop->ctrl_forget[id]}) {
++                // The kernel takes CUDA device pointers. A split/host weight keeps the stock path.
++                const auto buft = weight->buffer ? ggml_backend_buffer_get_type(weight->buffer) : nullptr;
++                if (buft != ggml_backend_dev_buffer_type(model.dev_layer(il)) || !ggml_is_matrix(weight) ||
++                    weight->view_offs % 16 != 0 || weight->type != GGML_TYPE_F32 ||
++                    !ggml_is_contiguous(weight) || (hdmd && hdmd->rot.count(weight)) ||
++                    prec_policy.prec_src1.count(weight)) {
++                    controller_backend = nullptr;
++                }
++            }
++            if (loop->ctrl_down[id]->ne[0] != 2 * n_embd || loop->ctrl_down[id]->ne[1] != 64 ||
++                loop->ctrl_gain[id]->ne[0] != 64 || loop->ctrl_gain[id]->ne[1] != n_embd ||
++                loop->ctrl_forget[id]->ne[0] != 64 || loop->ctrl_forget[id]->ne[1] != n_embd)
++                controller_backend = nullptr;
++        }
++    }
++    if (controller_backend) {
++        // The normalized and original channels share one allocation. The merge
++        // needs the original FP32 values and six up-projection weights.
++        auto *norm = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, 2 * n_embd, 6);
++        auto *down = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, 64, 3);
++        auto *out = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_embd, 3);
++        for (auto *node : {norm, down, out}) {
++            node->op = GGML_OP_CONCAT;
++            node->op_params[15] = node == norm ? 0x49434e33 : node == down ? 0x49434433 : 0x49434d33;
++            ggml_backend_sched_set_tensor_backend(sched, node, controller_backend);
++        }
++        norm->src[3] = messages;
++        down->src[0] = norm;
++        out->src[0] = down;
++        out->src[1] = norm;
++        for (int j = 0; j < 3; ++j) {
++            int id = LOOP_CTRL_Q + j;
++            norm->src[j] = inputs[j];
++            down->src[1 + j] = loop->ctrl_down[id];
++            out->src[2 + j] = loop->ctrl_gain[id];
++            out->src[5 + j] = loop->ctrl_forget[id];
++            inputs[j] = ggml_view_2d(ctx0, out, n_embd, 1, out->nb[1], j * out->nb[1]);
++        }
++        ggml_set_name(norm, "inkling_controller_qkv_norm3");
++        ggml_set_name(down, "inkling_controller_qkv_down3");
++        ggml_set_name(out, "inkling_controller_qkv_merge3");
++    } else if (messages) {
+         // the messages make the Q, K and V inputs of a SWA layer differ
+         for (int j = 0; j < 3; ++j) {
+             inputs[j] = control(inputs[j], message(LOOP_CTRL_Q + j), *loop, LOOP_CTRL_Q + j);

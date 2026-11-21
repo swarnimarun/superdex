@@ -1,0 +1,146 @@
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -1465,10 +1465,14 @@
+         res &= inp_attn->self_k_idxs->ne[0] == params.ubatch.n_tokens;
+     }
+ 
+-    res &= can_reuse_kq_mask(inp_attn->self_attn_mask.raw, attn_ctx->get_base(), params.ubatch, params.cparams);
+-
+-    res &= self_rel_pos->ne[0] == attn_ctx->get_base()->get_n_kv();
+-    res &= self_rel_pos->ne[1] == params.ubatch.n_tokens;
++    if (inp_attn->self_attn_mask.raw) {
++        res &= can_reuse_kq_mask(inp_attn->self_attn_mask.raw, attn_ctx->get_base(), params.ubatch, params.cparams);
++        res &= self_rel_pos->ne[0] == attn_ctx->get_base()->get_n_kv();
++        res &= self_rel_pos->ne[1] == params.ubatch.n_tokens;
++    } else {
++        res &= params.ubatch.n_seqs_unq == 1;
++        res &= self_rel_pos->ne[0] == int64_t(attn_ctx->get_base()->get_n_kv()) + params.ubatch.n_tokens;
++    }
+ 
+     // swa tensors may not be allocated if there are no SWA attention layers
+     if (inp_attn->self_k_idxs_swa && inp_attn->self_k_idxs_swa->buffer) {
+@@ -3814,6 +3818,35 @@
+ // Inkling's bias depends on each query and head. Materializing it for all queries at once
+ // couples expert microbatch size to attention workspace at long context. The query rows
+ // are independent once the whole microbatch's K/V has been stored in the cache.
++// The pinned CUDA plugin interposes this tagged FLASH_ATTN_EXT node only when
++// its launch hook is loaded and SM120 is available. Other devices retain dense FA.
++extern "C" bool inkling_compact_decode_ready() __attribute__((weak));
++extern "C" bool inkling_compact_fa_ready() __attribute__((weak));
++extern "C" bool inkling_compact_fa_supported(const ggml_tensor *, const ggml_tensor *, const ggml_tensor *,
++    const ggml_tensor *, const ggml_tensor *, const ggml_tensor *, float) __attribute__((weak));
++
++static bool inkling_compact_global(const llm_graph_context & gctx, const llama_kv_cache_context * kv) {
++    static const bool enabled = inkling_rel_flag("INKLING_COMPACT_FA");
++    static const bool single = inkling_rel_flag("INKLING_COMPACT_DECODE");
++    const bool single_query = single && gctx.ubatch.n_tokens == 1 && kv->get_n_kv() % 256 == 0 &&
++            inkling_compact_decode_ready && inkling_compact_decode_ready();
++    if (!enabled || gctx.model.arch != LLM_ARCH_INKLING2_LOOP || gctx.hparams.use_alibi ||
++        gctx.hparams.n_pos_per_embd() != 1 || !gctx.cparams.flash_attn || !gctx.cparams.causal_attn ||
++        gctx.cparams.training || gctx.cparams.n_seq_max != 1 || gctx.ubatch.n_seqs_unq != 1 ||
++        (gctx.ubatch.n_tokens < 16 && !single_query) || kv->get_n_kv() % 16 != 0 ||
++        kv->type_k() != GGML_TYPE_F16 || kv->type_v() != GGML_TYPE_F16 ||
++        !inkling_compact_fa_ready || !inkling_compact_fa_supported || !inkling_compact_fa_ready()) {
++        return false;
++    }
++    for (uint32_t il = 0; il < gctx.hparams.n_layer_all; ++il) {
++        if (!gctx.hparams.is_swa(il) && (inkling_host_global_kv(gctx.model, il) ||
++                strcmp(ggml_backend_dev_name(gctx.model.dev_layer(il)), "CUDA0") != 0)) {
++            return false;
++        }
++    }
++    return true;
++}
++
+ static bool inkling_pack_global_mask(const llm_graph_context & gctx) {
+     static const bool enabled = inkling_rel_flag("INKLING_PACK_GLOBAL_MASK");
+     return enabled && gctx.model.arch == LLM_ARCH_INKLING2_LOOP && !gctx.hparams.use_alibi &&
+@@ -3827,6 +3860,36 @@
+         ggml_tensor * table, ggml_tensor * positions, ggml_tensor * raw_mask,
+         ggml_tensor * sinks, float kq_scale, int il) {
+     ggml_context * ctx = gctx.ctx0;
++    if (!raw_mask) {
++        // The input decision covers every global layer. SWA retains its standard kernel. K/V are views into the normal KV cache.
++        q = ggml_permute(ctx, q, 0, 2, 1, 3);
++        k = ggml_permute(ctx, k, 0, 2, 1, 3);
++        v = ggml_permute(ctx, v, 0, 2, 1, 3);
++        auto * out = ggml_flash_attn_ext(ctx, q, k, v, nullptr, kq_scale, 0, 0);
++        if (!inkling_compact_fa_supported(q, k, v, table, positions, out, kq_scale)) {
++            throw std::runtime_error("unsupported compact Inkling FA tensor layout");
++        }
++        // src[0..5] are the standard ggml FA interface. The hook recognizes the
++        // additional compact table and slot/query position inputs at src[6..7].
++        out->src[6] = table;
++        out->src[7] = positions;
++        auto * target = inkling_attention_backend(gctx, il);
++        if (!target) {
++            for (int i = 0; i < ggml_backend_sched_get_n_backends(gctx.sched); ++i) {
++                auto * backend = ggml_backend_sched_get_backend(gctx.sched, i);
++                if (ggml_backend_get_device(backend) == gctx.model.dev_layer(il)) {
++                    target = backend;
++                    break;
++                }
++            }
++        }
++        if (!target || target == gctx.backend_cpu) {
++            throw std::runtime_error("compact Inkling FA needs its CUDA layer backend");
++        }
++        ggml_backend_sched_set_tensor_backend(gctx.sched, out, target);
++        gctx.cb(out, "inkling_compact_attention", il);
++        return ggml_reshape_2d(ctx, out, out->ne[0]*out->ne[1], out->ne[2]);
++    }
+     const int64_t heads = table->ne[0];
+     const int64_t n_kv = positions->ne[0];
+     const int64_t queries = q->ne[2];
+@@ -4613,12 +4676,14 @@
+ 
+     auto inp_attn = std::make_unique<llm_graph_input_attn_kv_iswa>(hparams, cparams, attn_ctx);
+ 
+-    // dense masks: the bias is gathered by the distance to each cell of the K/V view
++    const bool compact = inkling_compact_global(*this, attn_ctx->get_base());
+     {
+         inp_attn->self_k_idxs = attn_ctx->get_base()->build_input_k_idxs(ctx0, ubatch);
+         inp_attn->self_v_idxs = attn_ctx->get_base()->build_input_v_idxs(ctx0, ubatch);
+ 
+-        inp_attn->self_attn_mask.raw = build_attn_inp_kq_mask(ctx0, attn_ctx->get_base(), ubatch, cparams);
++        if (!compact) {
++            inp_attn->self_attn_mask.raw = build_attn_inp_kq_mask(ctx0, attn_ctx->get_base(), ubatch, cparams);
++        }
+     }
+ 
+     {
+@@ -4637,9 +4702,11 @@
+     auto inp = std::make_unique<llm_graph_input_mem_hybrid_iswa_rel>(cparams, std::move(inp_attn), std::move(inp_rs), mctx_cur, extent, extent_swa);
+ 
+     inp->packed_global = inkling_pack_global_mask(*this);
+-    inp->self_rel_pos = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, attn_ctx->get_base()->get_n_kv(), ubatch.n_tokens);
++    const int64_t n_kv = attn_ctx->get_base()->get_n_kv();
++    inp->self_rel_pos = compact ? ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_kv + ubatch.n_tokens) :
++                                  ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, n_kv, ubatch.n_tokens);
+     ggml_set_input(inp->self_rel_pos);
+-    ggml_set_name(inp->self_rel_pos, "attn_inp_rel_pos");
++    ggml_set_name(inp->self_rel_pos, compact ? "inkling_global_positions" : "attn_inp_rel_pos");
+ 
+     inp->self_rel_pos_swa = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, attn_ctx->get_swa()->get_n_kv(), ubatch.n_tokens);
+     ggml_set_input(inp->self_rel_pos_swa);
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -2026,6 +2026,18 @@
+ 
+ void llama_kv_cache::set_input_relative_pos(ggml_tensor * dst, const llama_ubatch * ubatch, uint32_t extent, bool packed) const {
+     GGML_ASSERT(dst->type == GGML_TYPE_I32);
++    if (strcmp(dst->name, "inkling_global_positions") == 0) {
++        const int64_t n_kv = dst->ne[0] - ubatch->n_tokens;
++        const auto seq = ubatch->seq_id[0][0];
++        const auto & cells = v_cells.at(seq_to_stream.at(seq));
++        std::vector<int32_t> positions(dst->ne[0]);
++        for (int64_t j = 0; j < n_kv; ++j) {
++            positions[j] = cells.is_empty(j) || !cells.seq_has(j, seq) ? -1 : cells.pos_get(j);
++        }
++        std::copy_n(ubatch->pos, ubatch->n_tokens, positions.begin() + n_kv);
++        ggml_backend_tensor_set(dst, positions.data(), 0, ggml_nbytes(dst));
++        return;
++    }
+     const int64_t n_kv = dst->ne[0];
+     static const bool fast = inkling_rel_flag("INKLING_FAST_REL_POS");
+     if (fast || packed) {

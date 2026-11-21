@@ -1,0 +1,43 @@
+--- a/src/models/inkling2.cpp
++++ b/src/models/inkling2.cpp
+@@ -1,4 +1,6 @@
+ #include "models.h"
++#include <cstring>
++extern "C" bool inkling_shortconv_available() __attribute__((weak));
+ #include <cstring>
+ extern "C" bool inkling_controller_available() __attribute__((weak));
+ #include "../llama-memory-hybrid-iswa.h"
+@@ -222,6 +224,33 @@
+     x = ggml_concat(ctx0, past, x, 0);
+ 
+     build_conv_state_store(inp, state, x, n_conv - 1, offset*(n_conv - 1)*ggml_element_size(state));
++
++    // The single-token window is [four chronological F32 samples, channels].
++    // Retain build_conv_state_store above for ordinary recurrent rollback semantics.
++    if (n_tokens == 1 && n_seq_tokens == 1 && n_seqs == 1 && n_conv == 4 &&
++        n_channels > 0 && n_channels <= INT32_MAX && n_channels % 128 == 0 &&
++        x->type == GGML_TYPE_F32 && ggml_is_contiguous(x) && x->view_offs % 16 == 0 &&
++        weight->type == GGML_TYPE_F32 && weight->ne[0] == 4 && weight->ne[1] == n_channels &&
++        ggml_is_matrix(weight) && ggml_is_contiguous(weight) && weight->view_offs % 16 == 0 && weight->buffer &&
++        (!dynamic || (dynamic->type == GGML_TYPE_F32 && ggml_is_contiguous(dynamic) && dynamic->view_offs % 16 == 0 &&
++            dynamic->ne[0] >= 4 && dynamic->ne[0] % 4 == 0 && ggml_nelements(dynamic) == dynamic->ne[0] &&
++            n_channels % (dynamic->ne[0]/4) == 0)) &&
++        inkling_shortconv_available && inkling_shortconv_available()) {
++        auto * weight_buffer = ggml_backend_buffer_get_type(weight->buffer);
++        for (int i=0; i<ggml_backend_sched_get_n_backends(sched); ++i) {
++            auto * backend = ggml_backend_sched_get_backend(sched,i);
++            auto * dev = ggml_backend_get_device(backend);
++            if (std::strcmp(ggml_backend_dev_name(dev),"CUDA0") || weight_buffer != ggml_backend_dev_buffer_type(dev)) continue;
++            auto * fused = ggml_ssm_conv(ctx0,x,weight);
++            fused->src[2] = dynamic;
++            const float scale = 1.f / sqrtf((dynamic ? 2 : 1)*n_conv+1);
++            std::memcpy(fused->op_params+1,&scale,sizeof(scale));
++            fused->op_params[15]=0x494b4334;
++            ggml_backend_sched_set_tensor_backend(sched,fused,backend);
++            ggml_set_name(fused,"inkling_fused_decode_conv");
++            return ggml_reshape_2d(ctx0,fused,n_channels,1);
++        }
++    }
+ 
+     ggml_tensor * out = ggml_ssm_conv(ctx0, x, weight);
+     out = ggml_reshape_2d(ctx0, out, n_channels, n_tokens);

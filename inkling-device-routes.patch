@@ -1,0 +1,228 @@
+--- a/src/llama-moe-cache.h
++++ b/src/llama-moe-cache.h
+@@ -55,6 +55,8 @@
+ 
+     // ggml_backend_sched copy callback, returns false if src is not a slot map
+     bool copy(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph);
++    bool enable_device_decode(size_t metadata_budget);
++    void retire_device_decode();
+     bool copy_with_reuse_wait(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph);
+ 
+     // for large batches: copy the experts of w that are in the cache, starting at expert e and up to expert last, to the copy dst of w
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -1,3 +1,4 @@
++#include "inkling-device-routes.h"
+ #include "inkling-expert-upload.h"
+ #include "llama-moe-cache.h"
+ 
+@@ -9,6 +10,7 @@
+ #include "ggml-cpp.h"
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cmath>
+ #include <cstdio>
+ #include <cstdlib>
+@@ -343,9 +345,13 @@
+         int32_t n_slots = 0;
+         int32_t unique_layers = 0;
+         moe_cache_lru lru;
++        ggml_backend_buffer_ptr route_buf;
++        void *route_observer = nullptr;
++        uint64_t route_visits = 0;
+     };
+ 
+     struct layer {
++        ink_dev_layer device_projections{};
+         int32_t weight_layer = -1; // shared physical weights keep one LRU entry per expert
+         int32_t ig = -1;                    // -1 if the layer is not cached
+         ggml_tensor * slot_map = nullptr;   // I32 [1, n_expert] in host memory
+@@ -727,7 +733,86 @@
+         fwrite(ids.data(), sizeof(int32_t), ids.size(), trace);
+     }
+ 
++    // A fresh phase cache starts with empty host maps. While the device owns
++    // the banks the host LRU stays untouched and empty, ready for a cold restart.
++    void *route_stream = nullptr;
++    bool route_observed = false;
++    unsigned long long route_phase = 0;
++    bool enable_device_decode(size_t metadata_budget) {
++        if (route_stream || trace || !ink_route_supported || !ink_route_bytes || !ink_route_bind || !ink_route_stream ||
++            !ink_route_init || !ink_route_send || !ink_route_finish ||
++            n_zero || n_expert_used != 8 || layers.size() != 48 || groups.empty() || !ink_route_supported()) return false;
++        void * stream = nullptr;
++        int owned = 0;
++        for (auto & g : groups) {
++            if (g.n_slots == 0) continue;
++            auto be = devices[g.id].backend;
++            auto current = ink_route_stream(be);
++            if (!current || (stream && current != stream) || g.banks.size() != 2 ||
++                g.lru.n_filled || g.lru.n_expert != 128 || g.n_slots < 8 || g.n_slots > 3072) return false;
++            stream = current;
++            for (int il : g.layers) {
++                auto & l = layers[il];
++                if (l.experts.size()!=2 || l.weight_layer<0 || l.weight_layer>=48 || l.cpu_map ||
++                    !ink_route_bind(be,l.experts.data(),g.banks.data(),g.n_slots,&l.device_projections)) return false;
++            }
++            ++owned;
++        }
++        if (!owned) return false;
++        const size_t bytes = ink_route_bytes();
++        if (bytes == 0 || static_cast<size_t>(owned) > metadata_budget / bytes) return false;
++        size_t charged_bytes = 0;
++        for (auto & g : groups) {
++            if (!g.n_slots) continue;
++            g.route_buf.reset(ggml_backend_buft_alloc_buffer(devices[g.id].buft,bytes));
++            if (g.route_buf) charged_bytes += ggml_backend_buffer_get_size(g.route_buf.get());
++            if (!g.route_buf || charged_bytes > metadata_budget) {
++                for (auto & alloc : groups) alloc.route_buf.reset();
++                return false;
++            }
++        }
++        for (auto & g : groups) if (g.route_buf) {
++            ink_route_init(stream, ggml_backend_buffer_get_base(g.route_buf.get()),g.n_slots);
++            const size_t allocated = ggml_backend_buffer_get_size(g.route_buf.get());
++            devices[g.id].buf_size += allocated;
++            if (ink_route_open_observer && ink_route_poll && ink_route_close_observer)
++                g.route_observer = ink_route_open_observer();
++        }
++        static std::atomic<unsigned long long> next_phase{0};
++        route_phase = next_phase.fetch_add(1, std::memory_order_relaxed) + 1;
++        route_stream = stream;
++        std::fprintf(stderr,"Inkling GPU-owned expert pools initialized: phase=%llu pools=%d charged_bytes=%zu\n",route_phase,owned,charged_bytes);
++        return true;
++    }
++
++    void report_device_pool(size_t index, const ink_route_stats &s) {
++        std::fprintf(stderr,
++            "Inkling GPU expert counters: phase=%llu pool=%zu visits=%llu all_hit=%llu hits=%llu misses=%llu bytes=%llu\n",
++            route_phase, index, (unsigned long long)s.visits, (unsigned long long)s.all_hits,
++            (unsigned long long)s.hits, (unsigned long long)s.misses, (unsigned long long)s.bytes);
++    }
++    void stop_device_decode() {
++        if (!route_stream) return;
++        for (auto & g : groups) if (g.route_buf) {
++            ink_route_stats st{};
++            ink_route_finish(route_stream,ggml_backend_buffer_get_base(g.route_buf.get()),&st);
++            report_device_pool(&g - groups.data(), st);
++            if (g.route_observer) {
++                ink_route_close_observer(g.route_observer);
++                g.route_observer = nullptr;
++            }
++            devices[g.id].buf_size -= ggml_backend_buffer_get_size(g.route_buf.get());
++            g.route_buf.reset();
++            // No host planner has observed any entries in these banks.
++            GGML_ASSERT(g.lru.n_filled == 0);
++        }
++        route_stream = nullptr;
++        route_observed = false;
++        std::fprintf(stderr, "Inkling GPU expert routing retired: phase=%llu\n", route_phase);
++    }
++
+     ~impl() {
++        stop_device_decode();
+         log_stats();
+         if (trace != nullptr) {
+             fclose(trace);
+@@ -782,6 +867,7 @@
+         if (it == bindings.end()) {
+             return 0;
+         }
++        stop_device_decode(); // mixed/large batch falls back to empty host maps
+         const binding & b = it->second;
+         const group & g = groups[layers[b.il].ig];
+         if (backend != devices[g.id].backend) {
+@@ -826,6 +912,7 @@
+                 !dst || dst->buffer == nullptr || ggml_backend_buffer_get_type(dst->buffer) != devices[g.id].buft)) {
+             return false;
+         }
++        if (!join_before_write) stop_device_decode();
+         GGML_ASSERT(backend == devices[g.id].backend);
+ 
+         // the get_rows that looks up the slots of the selected experts
+@@ -864,6 +951,30 @@
+         GGML_ASSERT(ggml_is_contiguous(sel));
+         GGML_ASSERT(sel->op == GGML_OP_RESHAPE); // of the [n_expert_used, n_tokens] ids, see build_lookup
+ 
++        if (join_before_write && route_stream) {
++            if (ink_route_stream(backend) != route_stream || !g.route_buf ||
++                !ink_route_send(route_stream,ggml_backend_buffer_get_base(g.route_buf.get()),l.weight_layer,
++                                static_cast<const int *>(sel->data),static_cast<int *>(dst->data),&l.device_projections)) {
++                // The regular caller will retire all owners before consulting its host planner.
++                return false;
++            }
++            if (!route_observed) {
++                std::fprintf(stderr, "Inkling GPU expert routing executed without host lookup: phase=%llu\n", route_phase);
++                route_observed = true;
++            }
++            // Sample each independently sized pool in stream order. Its next
++            // callback publishes the result only after the driver marks it ready.
++            if (g.route_observer && ++g.route_visits % 256 == 0) {
++                ink_route_stats stats{};
++                if (ink_route_poll(g.route_observer, route_stream, ggml_backend_buffer_get_base(g.route_buf.get()), &stats))
++                    report_device_pool(l.ig, stats);
++            }
++            return true;
++        }
++        if (join_before_write) {
++            static const bool host_defer = [] { const char *f=std::getenv("INKLING_DEFER_SLOT_WAIT");return f && std::strcmp(f,"1")==0; }();
++            if (!host_defer) return false;
++        }
+         const int32_t n_used = (int32_t) sel->src[0]->ne[0];
+ 
+         ids.resize(ggml_nelements(sel));
+@@ -1054,6 +1165,10 @@
+     return pimpl->copy(backend, src, dst, graph);
+ }
+ 
++void llama_moe_cache::retire_device_decode() { pimpl->stop_device_decode(); }
++
++bool llama_moe_cache::enable_device_decode(size_t metadata_budget) { return pimpl->enable_device_decode(metadata_budget); }
++
+ bool llama_moe_cache::copy_with_reuse_wait(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph) {
+     return pimpl->copy(backend, src, dst, graph, true);
+ }
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -691,6 +691,12 @@
+     // wait for any pending asynchronous copies into the output buffers before they are freed
+     synchronize();
+ 
++    // Member destruction releases the CUDA backend (and its stream) before
++    // the model's expert cache. Retire pending route work while both are live.
++    if (moe_cache) {
++        moe_cache->retire_device_decode();
++    }
++
+     // when training, ggml_opt allocates extra buffers through the scheduler, so the sizes no longer match the expectation
+     if (!model.no_alloc() && !opt_ctx) {
+         for (size_t i = 0; i < backend_ptrs.size(); ++i) {
+@@ -841,7 +847,8 @@
+ 
+     ggml_backend_sched_set_copy_callback(sched.get(), sched_copy_experts, this);
+     const char * defer = std::getenv("INKLING_DEFER_SLOT_WAIT");
+-    if (defer && std::strcmp(defer, "1") == 0 && inkling_set_waiting_copy_callback) {
++    const char * device_route = std::getenv("INKLING_DEVICE_ROUTES");
++    if (((defer && std::strcmp(defer,"1")==0) || (device_route && std::strcmp(device_route,"1")==0)) && inkling_set_waiting_copy_callback) {
+         inkling_set_waiting_copy_callback(sched.get(), [](ggml_backend_t backend, const ggml_tensor * src,
+                 ggml_tensor * dst, ggml_cgraph * graph, void * user_data) {
+             auto * ctx = static_cast<llama_context *>(user_data);
+@@ -927,6 +934,17 @@
+         replaced_cache = true;
+         moe_cache = std::make_unique<llama_moe_cache>(model, false, backend_ptrs, backend_buft,
+                                                      requested, cparams.moe_cache_cpu_share);
++        const char *device_route = std::getenv("INKLING_DEVICE_ROUTES");
++        // Device maps exclusively own this new cache. Verification batches and
++        // ordinary prefill use the existing host planner.
++        if (device_route && std::strcmp(device_route, "1") == 0) {
++            const size_t bank_bytes = moe_cache->memory_breakdown().at(buft);
++            const size_t fixed_bytes = bank_bytes + decode_scratch + guard;
++            const size_t metadata_budget = envelope > fixed_bytes ? envelope - fixed_bytes : 0;
++            if (phase_verify_width != 1 || !moe_cache->enable_device_decode(metadata_budget)) {
++                LLAMA_LOG_INFO("Inkling GPU expert routing unavailable for this phase; using host lookup\n");
++            }
++        }
+         const size_t actual_cache = moe_cache->memory_breakdown().at(buft);
+         if (phase_verify_reserve(full.get(), true) + actual_cache + guard > envelope) {
+             throw std::runtime_error("enlarged cache and verification graph exceed prefill envelope");

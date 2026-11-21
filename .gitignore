@@ -1,0 +1,29 @@
+# Downloads, builds, client profiles, and raw benchmark runs
+/.runtime/
+/.jj/
+/.agents/
+/.aws/
+/.codex/
+*.gguf
+*.gguf.*
+*.safetensors
+*.safetensors.*
+*.log
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.ssh/
+credentials.json
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Python and editor artifacts
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.DS_Store

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Validate changes in selected IDs, weights and ownership across captured CUDA graph replays.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+plugin="$(pwd)/.runtime/compact-fa-native/current"
+if [[ ! -x "$plugin/check-graph-routes" || ! -f "$plugin/libinkling-device-routes.so" ]]; then
+    echo 'Build with ./scripts/build-compact-fa --native first' >&2
+    exit 1
+fi
+export LD_LIBRARY_PATH="$plugin:$(pwd)/.runtime/llama-b12602:$(pwd)/.runtime/cudart-llama-b12602-bin-ubuntu-cuda-12.8-x64:${LD_LIBRARY_PATH:-}"
+export LD_PRELOAD="$plugin/libinkling-device-routes.so${LD_PRELOAD:+:$LD_PRELOAD}"
+exec "$plugin/check-graph-routes"

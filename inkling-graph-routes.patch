@@ -1,0 +1,159 @@
+--- a/src/llama-moe-cache.h
++++ b/src/llama-moe-cache.h
+@@ -57,6 +57,7 @@
+     bool copy(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph);
+     bool enable_device_decode(size_t metadata_budget);
+     void retire_device_decode();
++    void observe_graph_decode();
+     bool copy_with_reuse_wait(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph);
+ 
+     // for large batches: copy the experts of w that are in the cache, starting at expert e and up to expert last, to the copy dst of w
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -736,6 +736,8 @@
+     // A fresh phase cache starts with empty host maps. While the device owns
+     // the banks the host LRU stays untouched and empty, ready for a cold restart.
+     void *route_stream = nullptr;
++    bool graph_routing = false;
++    uint64_t graph_steps = 0;
+     bool route_observed = false;
+     unsigned long long route_phase = 0;
+     bool enable_device_decode(size_t metadata_budget) {
+@@ -781,6 +783,13 @@
+         static std::atomic<unsigned long long> next_phase{0};
+         route_phase = next_phase.fetch_add(1, std::memory_order_relaxed) + 1;
+         route_stream = stream;
++        const char *graph_flag=std::getenv("INKLING_GRAPH_ROUTES");
++        graph_routing=graph_flag && std::strcmp(graph_flag,"1")==0 && ink_route_graph_available &&
++            ink_route_graph_map && ink_route_graph_mark && ink_route_graph_available();
++        if (graph_flag && std::strcmp(graph_flag, "1") == 0) {
++            std::fprintf(stderr, graph_routing ? "Inkling GPU expert graph enabled: phase=%llu\n" :
++                "Inkling GPU expert graph unavailable: phase=%llu; using scheduler routing\n", route_phase);
++        }
+         std::fprintf(stderr,"Inkling GPU-owned expert pools initialized: phase=%llu pools=%d charged_bytes=%zu\n",route_phase,owned,charged_bytes);
+         return true;
+     }
+@@ -791,6 +800,21 @@
+             route_phase, index, (unsigned long long)s.visits, (unsigned long long)s.all_hits,
+             (unsigned long long)s.hits, (unsigned long long)s.misses, (unsigned long long)s.bytes);
+     }
++    void observe_graph_decode() {
++        if (!graph_routing || !route_stream || ++graph_steps % 8 != 0) return;
++        for (auto &g : groups) {
++            if (!g.route_observer) continue;
++            ink_route_stats sample{};
++            if (ink_route_poll(g.route_observer,route_stream,ggml_backend_buffer_get_base(g.route_buf.get()),&sample)) {
++                if (sample.visits && !route_observed) {
++                    std::fprintf(stderr,"Inkling GPU expert routing executed without host lookup: phase=%llu\n",route_phase);
++                    route_observed=true;
++                }
++                report_device_pool(&g-groups.data(),sample);
++            }
++        }
++    }
++
+     void stop_device_decode() {
+         if (!route_stream) return;
+         for (auto & g : groups) if (g.route_buf) {
+@@ -807,6 +831,7 @@
+             GGML_ASSERT(g.lru.n_filled == 0);
+         }
+         route_stream = nullptr;
++        graph_routing = false;
+         route_observed = false;
+         std::fprintf(stderr, "Inkling GPU expert routing retired: phase=%llu\n", route_phase);
+     }
+@@ -867,6 +892,10 @@
+         if (it == bindings.end()) {
+             return 0;
+         }
++        // Graph-owned banks are opaque to the host LRU. An uncached graph
++        // should copy its requested originals directly, never invalidating the
++        // metadata referenced by already-reserved CUDA graphs.
++        if (graph_routing) return 0;
+         stop_device_decode(); // mixed/large batch falls back to empty host maps
+         const binding & b = it->second;
+         const group & g = groups[layers[b.il].ig];
+@@ -912,6 +941,10 @@
+                 !dst || dst->buffer == nullptr || ggml_backend_buffer_get_type(dst->buffer) != devices[g.id].buft)) {
+             return false;
+         }
++        // A mixed-width prefill resets the scheduler and swaps the entire cache
++        // before building any graph. While graph-owned, every eligible lookup
++        // is therefore a GPU node and there is no host map input to schedule.
++        if (graph_routing) GGML_ABORT("unexpected host lookup in a graph-owned decode cache");
+         if (!join_before_write) stop_device_decode();
+         GGML_ASSERT(backend == devices[g.id].backend);
+ 
+@@ -1099,6 +1132,12 @@
+ 
+     ggml_tensor * cpu_map  = cpu_part ? pimpl->get_cpu_map(il, selected_experts->ne[1]) : nullptr;
+     ggml_tensor * slot_map = pimpl->get_slot_map(il, selected_experts->ne[1], selected_experts->ne[0], cpu_map != nullptr);
++    const bool use_graph = pimpl->graph_routing;
++    if (use_graph && (selected_experts->ne[1] != 1 || selected_experts->ne[0] != 8 || cpu_map)) {
++        // A width outside the graph ownership contract uses immutable original
++        // weights via the CUDA scheduler. Its graph contains no host slot map.
++        return {};
++    }
+     if (slot_map == nullptr) {
+         return {};
+     }
+@@ -1125,6 +1164,32 @@
+ 
+     // the slot map is a host weight, so the scheduler starts a new split here and copies it with the copy callback
+     // the callback reads the selected experts, uploads the missing ones and updates the slot map
++    if (use_graph) {
++        auto &l=pimpl->layers[il];
++        auto &pool=pimpl->groups[l.ig];
++        void *state=ggml_backend_buffer_get_base(pool.route_buf.get());
++        auto *map=ggml_new_tensor_2d(ctx0,GGML_TYPE_I32,1,128);
++        GGML_ASSERT(ggml_backend_tensor_alloc(pool.route_buf.get(),map,ink_route_graph_map(state,l.weight_layer))==GGML_STATUS_SUCCESS);
++        auto *slots=ggml_get_rows(ctx0,map,ids);
++        if (!ggml_backend_supports_op(pimpl->backend(il), slots)) return {};
++        // Previous projection consumers may still be running on a forked CUDA
++        // stream. Declare the last down-projection of this physical pool as an
++        // input, so eviction cannot race any of its expert parameter reads.
++        for (int i=ggml_graph_n_nodes(g.gf)-1;i>=0;--i) {
++            auto *node=ggml_graph_node(g.gf,i);
++            if (node->op!=GGML_OP_MUL_MAT_ID || !node->src[0]) continue;
++            auto *weights=node->src[0];
++            if(weights==pool.banks.back() || weights->view_src==pool.banks.back()) {
++                slots->src[2]=node;
++                break;
++            }
++        }
++        ink_route_graph_mark(slots,state,l.weight_layer,&l.device_projections);
++        ggml_backend_sched_set_tensor_backend(g.sched,slots,pimpl->backend(il));
++        g.cb(slots,"ffn_moe_graph_slots",il);
++        ggml_build_forward_expand(g.gf,slots);
++        return {il,ggml_reshape_2d(ctx0,slots,8,1),nullptr};
++    }
+     ggml_tensor * slots = ggml_get_rows(ctx0, slot_map, ids); // [1, n_expert_used*n_tokens]
+     if (!ggml_backend_supports_op(pimpl->backend(il), slots)) {
+         return {};
+@@ -1158,6 +1223,7 @@
+         g.cb(experts, "ffn_moe_down_merged", lookup.il);
+     }
+ 
++    if (pimpl->graph_routing) ggml_build_forward_expand(g.gf,experts);
+     return experts;
+ }
+ 
+@@ -1165,6 +1231,7 @@
+     return pimpl->copy(backend, src, dst, graph);
+ }
+ 
++void llama_moe_cache::observe_graph_decode() { pimpl->observe_graph_decode(); }
+ void llama_moe_cache::retire_device_decode() { pimpl->stop_device_decode(); }
+ 
+ bool llama_moe_cache::enable_device_decode(size_t metadata_budget) { return pimpl->enable_device_decode(metadata_budget); }
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -3317,6 +3317,7 @@
+     copy_experts.reset();
+ 
+     auto status = ggml_backend_sched_graph_compute_async(sched.get(), gf);
++    if (status == GGML_STATUS_SUCCESS && phase_cache_decode && !batched && moe_cache) moe_cache->observe_graph_decode();
+     if (status != GGML_STATUS_SUCCESS) {
+         LLAMA_LOG_ERROR("%s: ggml_backend_sched_graph_compute_async failed with error %d\n", __func__, status);
+     }

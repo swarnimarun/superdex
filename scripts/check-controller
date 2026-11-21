@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Compare the optional three-lane controller to b12602 CUDA on synthetic tensors.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+plugin="$(pwd)/.runtime/compact-fa-native/current"
+if [[ ! -x "$plugin/check-controller" || ! -f "$plugin/libinkling-controller.so" ]]; then
+    echo 'Build the CUDA plug-in first with ./scripts/build-compact-fa --native' >&2
+    exit 1
+fi
+export INKLING_CONTROLLER_FUSION=1
+export LD_LIBRARY_PATH="$(pwd)/.runtime/llama-b12602:$(pwd)/.runtime/cudart-llama-b12602-bin-ubuntu-cuda-12.8-x64:${LD_LIBRARY_PATH:-}"
+export LD_PRELOAD="$plugin/libinkling-controller.so${LD_PRELOAD:+:$LD_PRELOAD}"
+exec "$plugin/check-controller"

@@ -1,0 +1,153 @@
+--- a/src/llama-context.h
++++ b/src/llama-context.h
+@@ -312,6 +312,9 @@
+ 
+     // create a new backend scheduler with the given parameters, unless the current one can be reused
+     void sched_new(const sched_params & params);
++    void phase_cache_clear_compute();
++    void phase_cache_restore();
++    void phase_cache_enter();
+ 
+     // ggml_backend_sched copy callback, copies only the experts used by MUL_MAT_ID and updates the MoE cache
+     static bool sched_copy_experts(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph, void * user_data);
+@@ -510,4 +513,10 @@
+     mutable int32_t n_eval   = 0; // number of eval calls
+ 
+     mutable int32_t n_reused = 0; // number of times the previous graph was reused
++
++    // Optional single-slot Inkling decode cache. Model tensors and sequence memory stay resident.
++    size_t phase_cache_extra = 0;
++    size_t phase_cache_gpu = 0;
++    int phase_cache_streak = 0;
++    bool phase_cache_decode = false;
+ };
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -622,6 +622,23 @@
+         }
+ 
+         sched_reserve();
++        if (const char * value = std::getenv("INKLING_DECODE_CACHE_EXTRA_MIB")) {
++            char * end = nullptr;
++            const long extra = std::strtol(value, &end, 10);
++            if (end == value || *end || extra < 0 || extra > 16384) {
++                throw std::runtime_error("INKLING_DECODE_CACHE_EXTRA_MIB must be from 0 to 16384");
++            }
++            if (extra && !model.no_alloc() && model.arch == LLM_ARCH_INKLING2_LOOP && moe_cache &&
++                !cparams.training && !cparams.pipeline_parallel && cparams.n_seq_max == 1 &&
++                cparams.moe_cache_cpu_share == 0 && model.devices.size() == 1) {
++                for (size_t i = 0; i < backend_ptrs.size(); ++i) {
++                    if (std::strcmp(ggml_backend_name(backend_ptrs[i]), "CUDA0") == 0) {
++                        phase_cache_gpu = i;
++                        phase_cache_extra = static_cast<size_t>(extra) << 20;
++                    }
++                }
++            }
++        }
+ 
+         if (!cparams.flash_attn) {
+             if (ggml_is_quantized(params.type_v)) {
+@@ -799,11 +816,90 @@
+     sched_params_cur = params;
+ }
+ 
++// Destroy all graphs referring to the old scheduler before dropping its high-water buffers.
++void llama_context::phase_cache_clear_compute() {
++    ggml_backend_sched_synchronize(sched.get());
++    gf_res_prev_active = nullptr;
++    for (auto & res : gf_res_prev) res->reset();
++    gf_res_reserve->reset();
++    copy_experts.reset();
++    const auto params = sched_params_cur;
++    sched.reset();
++    sched_new(params);
++}
++
++void llama_context::phase_cache_restore() {
++    phase_cache_clear_compute();
++    moe_cache.reset();
++    moe_cache = std::make_unique<llama_moe_cache>(model, false, backend_ptrs, backend_buft,
++                                                 cparams.moe_cache_size, cparams.moe_cache_cpu_share);
++    phase_cache_decode = false;
++    phase_cache_streak = 0;
++    LLAMA_LOG_INFO("Inkling phase cache: restored prefill expert cache request %.1f MiB\n",
++                   cparams.moe_cache_size/1048576.0);
++}
++
++void llama_context::phase_cache_enter() {
++    // Both cache maps use exact copies of model weights; only expert residency changes.
++    auto * device = backend_ptrs[phase_cache_gpu];
++    auto * buft = backend_buft[phase_cache_gpu];
++    const size_t prefill_scratch = ggml_backend_sched_get_buffer_size(sched.get(), device);
++    const size_t old_cache = moe_cache->memory_breakdown().at(buft);
++    const size_t envelope = prefill_scratch + old_cache;
++    const size_t guard = 128ull << 20;
++    constexpr double mib = 1048576.0;
++    bool replaced_cache = false;
++    try {
++        auto full = memory->init_full();
++        if (!full) throw std::runtime_error("full context view unavailable");
++        phase_cache_clear_compute();
++        std::vector<size_t> sizes(backend_ptrs.size());
++        if (!graph_reserve(1, 1, 1, full.get(), true, sizes.data())) {
++            throw std::runtime_error("cannot size one-token full-context graph");
++        }
++        const size_t decode_scratch = sizes[phase_cache_gpu];
++        if (prefill_scratch <= decode_scratch + guard) {
++            throw std::runtime_error("insufficient reusable prefill scratch");
++        }
++        const size_t extra = std::min(phase_cache_extra, prefill_scratch - decode_scratch - guard);
++        const size_t requested = old_cache + extra;
++        // No prefill backing buffers or expert replicas overlap the new allocation.
++        phase_cache_clear_compute();
++        moe_cache.reset();
++        replaced_cache = true;
++        moe_cache = std::make_unique<llama_moe_cache>(model, false, backend_ptrs, backend_buft,
++                                                     requested, cparams.moe_cache_cpu_share);
++        const size_t actual_cache = moe_cache->memory_breakdown().at(buft);
++        if (!graph_reserve(1, 1, 1, full.get(), true, sizes.data()) ||
++            sizes[phase_cache_gpu] + actual_cache + guard > envelope) {
++            throw std::runtime_error("enlarged cache and one-token graph exceed prefill envelope");
++        }
++        if (!graph_reserve(1, 1, 1, full.get()) ||
++            ggml_backend_sched_get_buffer_size(sched.get(), device) + actual_cache > envelope) {
++            throw std::runtime_error("could not reserve one-token full-context workspace");
++        }
++        for (size_t i=0; i<backend_ptrs.size(); ++i) {
++            backend_buf_exp_size[i]=ggml_backend_sched_get_buffer_size(sched.get(), backend_ptrs[i]);
++        }
++        phase_cache_decode = true;
++        LLAMA_LOG_INFO("Inkling phase cache: decode active, prefill scratch %.1f MiB, decode scratch %.1f MiB, "
++                       "expert cache %.1f -> %.1f MiB, shared ceiling %.1f MiB\n",
++                       prefill_scratch/mib,backend_buf_exp_size[phase_cache_gpu]/mib,old_cache/mib,actual_cache/mib,envelope/mib);
++    } catch (const std::exception & e) {
++        LLAMA_LOG_WARN("Inkling phase cache: disabling after %s\n", e.what());
++        phase_cache_extra = 0;
++        if (replaced_cache) phase_cache_restore();
++        sched_need_reserve = true;
++        sched_reserve();
++    }
++}
++
+ void llama_context::sched_reserve() {
+     if (!sched_need_reserve) {
+         return;
+     }
+ 
++    if (phase_cache_decode) phase_cache_restore();
+     sched_need_reserve = false;
+ 
+     LLAMA_LOG_INFO("%s: reserving ...\n", __func__);
+@@ -2261,7 +2357,12 @@
+     output_swaps.clear();
+     embd_batch_idxs.clear();
+ 
++    if (phase_cache_decode && batch_inp.tokens.size() != 1) sched_need_reserve = true;
+     sched_reserve();
++    if (phase_cache_extra && !phase_cache_decode) {
++        if (batch_inp.tokens.size() != 1) phase_cache_streak = 0;
++        else if (++phase_cache_streak >= 4) phase_cache_enter();
++    }
+ 
+     bool did_optimize = false;
+ 

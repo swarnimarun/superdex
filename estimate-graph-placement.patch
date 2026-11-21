@@ -1,0 +1,41 @@
+--- a/ggml/src/ggml-backend.cpp
++++ b/ggml/src/ggml-backend.cpp
+@@ -1229,7 +1229,8 @@
+ };
+ 
+ struct ggml_backend_sched {
+-    bool is_reset; // true if the scheduler has been reset since the last graph split
++    bool is_reset; // no split or explicit placements since reset
++    bool has_split_assignments; // the assignment map includes a previous graph split
+     bool is_alloc;
+ 
+     int n_backends;
+@@ -1535,6 +1536,7 @@
+     sched->n_splits = 0;
+     sched->n_graph_inputs = 0;
+     sched->is_reset = false;
++    sched->has_split_assignments = true;
+ 
+     struct ggml_init_params params = {
+         /* .mem_size =   */ sched->context_buffer_size,
+@@ -2522,6 +2524,7 @@
+         memset(sched->hv_tensor_copies,        0, sched->hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct ggml_tensor *));
+         memset(sched->hv_tensor_requires_copy, 0, sched->hash_set.size * sizeof(sched->hv_tensor_requires_copy[0]));
+         sched->is_reset = true;
++        sched->has_split_assignments = false;
+     }
+     sched->is_alloc = false;
+ }
+@@ -2531,7 +2534,11 @@
+     GGML_ASSERT((int)sched->hash_set.size >= measure_graph->n_nodes + measure_graph->n_leafs);
+     GGML_ASSERT(sizes);
+ 
+-    ggml_backend_sched_reset(sched);
++    // Clear stale assignments when reusing a scheduler. A fresh graph can already
++    // have explicit placements from its builder; retain those as actual reserve does.
++    if (sched->has_split_assignments) {
++        ggml_backend_sched_reset(sched);
++    }
+ 
+     ggml_backend_sched_synchronize(sched);
+ 

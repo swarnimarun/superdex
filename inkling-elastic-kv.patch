@@ -1,0 +1,866 @@
+--- a/ggml/include/ggml-backend.h
++++ b/ggml/include/ggml-backend.h
+@@ -36,6 +36,9 @@
+ 
+     // Remaining shared CUDA0 allocator allowance, in bytes. Zero when no limit is configured.
+     GGML_API size_t inkling_cuda_budget_available(void);
++    // Charge/release physical driver allocations outside normal ggml buffer creation.
++    GGML_API bool inkling_cuda_charge_external(size_t bytes);
++    GGML_API void inkling_cuda_release_external(size_t bytes);
+ 
+     GGML_API const char *          ggml_backend_buft_name            (ggml_backend_buffer_type_t buft);
+     GGML_API ggml_backend_buffer_t ggml_backend_buft_alloc_buffer    (ggml_backend_buffer_type_t buft, size_t size);
+--- a/ggml/src/ggml-backend.cpp
++++ b/ggml/src/ggml-backend.cpp
+@@ -55,6 +55,20 @@
+ static cuda_buffer_budget & buffer_budget() {
+     static cuda_buffer_budget budget;
+     return budget;
++}
++
++bool inkling_cuda_charge_external(size_t bytes) {
++    auto & budget = buffer_budget();
++    std::lock_guard<std::mutex> lock(budget.mutex);
++    if (!budget.limit || bytes > budget.limit-budget.live) return false;
++    budget.live += bytes;
++    return true;
++}
++void inkling_cuda_release_external(size_t bytes) {
++    auto & budget = buffer_budget();
++    std::lock_guard<std::mutex> lock(budget.mutex);
++    GGML_ASSERT(bytes <= budget.live);
++    budget.live -= bytes;
+ }
+ 
+ size_t inkling_cuda_budget_available(void) {
+@@ -681,7 +695,11 @@
+         }
+     }
+ 
+-    if (same_buft && buf->iface.set_tensor_n != NULL) {
++    if (same_buft && buf->iface.set_tensor_n != NULL &&
++            std::all_of(tensors, tensors + n_tensors, [buf](const ggml_tensor * t) {
++                auto * b = t->view_src ? t->view_src->buffer : t->buffer;
++                return b->iface.set_tensor_n == buf->iface.set_tensor_n;
++            })) {
+         buf->iface.set_tensor_n(buf, tensors, data_ptrs.data(), offsets, sizes, n_tensors);
+         return;
+     }
+@@ -755,7 +773,11 @@
+         }
+     }
+ 
+-    if (same_buft && buf->iface.get_tensor_n != NULL) {
++    if (same_buft && buf->iface.get_tensor_n != NULL &&
++            std::all_of(tensors, tensors + n_tensors, [buf](const ggml_tensor * t) {
++                auto * b = t->view_src ? t->view_src->buffer : t->buffer;
++                return b->iface.get_tensor_n == buf->iface.get_tensor_n;
++            })) {
+         buf->iface.get_tensor_n(buf, tensors, data_ptrs.data(), offsets, sizes, n_tensors);
+         return;
+     }
+@@ -923,7 +945,11 @@
+     }
+ 
+     // if cpy_tensor_n returns false, it must not have performed any copies
+-    if (same_buft && buf->iface.cpy_tensor_n != NULL) {
++    if (same_buft && buf->iface.cpy_tensor_n != NULL &&
++            std::all_of(dsts, dsts + n_tensors, [buf](const ggml_tensor * t) {
++                auto * b = t->view_src ? t->view_src->buffer : t->buffer;
++                return b->iface.cpy_tensor_n == buf->iface.cpy_tensor_n;
++            })) {
+         if (buf->iface.cpy_tensor_n(buf, srcs, dsts, n_tensors)) {
+             return;
+         }
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -1,6 +1,7 @@
+ #include "inkling-host-global-kv.h"
+ 
+ #include "llama-context.h"
++#include "inkling-elastic-kv.h"
+ 
+ #include "ggml.h"
+ #include "ggml-backend.h"
+@@ -685,6 +686,7 @@
+ }
+ 
+ llama_context::~llama_context() {
++    inkling_kv_vmm_reclaim(this, {});
+     // wait for any pending asynchronous copies into the output buffers before they are freed
+     synchronize();
+ 
+@@ -855,6 +857,7 @@
+ }
+ 
+ void llama_context::phase_cache_restore() {
++    inkling_kv_vmm_reclaim(this, {});
+     phase_cache_clear_compute();
+     moe_cache.reset();
+     moe_cache = std::make_unique<llama_moe_cache>(model, false, backend_ptrs, backend_buft,
+@@ -889,7 +892,11 @@
+     const size_t old_cache = moe_cache->memory_breakdown().at(buft);
+     // Query while prefill scratch and the old cache are still charged. Allocation
+     // subsequently rechecks the same global budget under the allocator lock.
+-    const size_t spare = phase_cache_headroom ? std::min(phase_cache_headroom, inkling_cuda_budget_available()) : 0;
++    // Keep 256 MiB (8192 global KV cells on Inkling) in reserve for further generation.
++    const size_t unbacked = inkling_kv_vmm_unbacked();
++    const size_t elastic = unbacked > (256ull << 20) ? unbacked - (256ull << 20) : 0;
++    const size_t requested_spare = phase_cache_headroom + elastic;
++    const size_t spare = requested_spare ? std::min(requested_spare, inkling_cuda_budget_available()) : 0;
+     const size_t reusable = prefill_scratch + spare;
+     const size_t envelope = reusable + old_cache;
+     const size_t guard = 128ull << 20;
+@@ -922,6 +929,11 @@
+             backend_buf_exp_size[i]=ggml_backend_sched_get_buffer_size(sched.get(), backend_ptrs[i]);
+         }
+         phase_cache_decode = true;
++        if (unbacked) inkling_kv_vmm_reclaim(this, [this] {
++            LLAMA_LOG_INFO("Inkling elastic KV: restoring prefill cache before page growth\n");
++            sched_need_reserve = true;
++            sched_reserve();
++        });
+         LLAMA_LOG_INFO("Inkling phase cache: decode active, prefill scratch %.1f MiB, decode scratch %.1f MiB, "
+                        "expert cache %.1f -> %.1f MiB, shared ceiling %.1f MiB\n",
+                        prefill_scratch/mib,backend_buf_exp_size[phase_cache_gpu]/mib,old_cache/mib,actual_cache/mib,envelope/mib);
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -7,6 +7,7 @@
+ #include "llama-io.h"
+ #include "llama-model.h"
+ #include "llama-context.h"
++#include "inkling-elastic-kv.h"
+ 
+ #include <algorithm>
+ #include <cassert>
+@@ -290,9 +291,25 @@
+         }
+     }
+ 
++    const char * setting = std::getenv("INKLING_ELASTIC_KV");
++    const bool auto_vmm = setting && !std::strcmp(setting, "auto");
++    const bool requested_vmm = setting && (auto_vmm || !std::strcmp(setting, "1")) && !no_alloc && model.arch == LLM_ARCH_INKLING2_LOOP && !n_swa && !is_indexer;
++    const bool use_vmm = requested_vmm && !other && offload && type_k == GGML_TYPE_F16 && type_v == GGML_TYPE_F16 && !v_trans &&
++            n_stream == 1 && n_seq_max == 1 && model.devices.size() == 1 && ctx_map.size() == 1 &&
++            !std::strcmp(ggml_backend_buft_name(ctx_map.begin()->first), "CUDA0") && inkling_kv_vmm_available(auto_vmm);
++    if (requested_vmm && !use_vmm) {
++        if (!auto_vmm) throw std::runtime_error("INKLING_ELASTIC_KV=1 needs a VMM-enabled build, supported NVIDIA driver, one slot and all global FP16 KV on CUDA0");
++        LLAMA_LOG_INFO("Inkling elastic KV: using conventional KV for this device, placement or layout\n");
++    }
+     // allocate the tensors and initialize the buffers to avoid NaNs in the padding
+     for (auto & [buft, ctx] : ctx_map) {
+-        ggml_backend_buffer_t buf = ctxs_bufs.emplace(std::move(ctx), buft, "kv cache");
++        ggml_backend_buffer_ptr buffer(use_vmm ? inkling_kv_vmm_alloc(this, ctx.get(), buft, kv_size) : nullptr);
++        ggml_backend_buffer_t buf = buffer.get();
++        if (buffer) {
++            ctxs_bufs.bufs.emplace_back(std::move(ctx), std::move(buffer));
++        } else {
++            buf = ctxs_bufs.emplace(std::move(ctx), buft, "kv cache");
++        }
+ 
+         LLAMA_LOG_INFO("%s: %10s KV buffer size = %8.2f MiB\n", __func__, ggml_backend_buffer_name(buf), ggml_backend_buffer_get_size(buf)/1024.0/1024.0);
+     }
+@@ -444,6 +461,7 @@
+         v_heads[s] = 0;
+     }
+ 
++    if (!data && inkling_kv_vmm_matches(this)) inkling_kv_vmm_rows(this, 0, true);
+     if (data) {
+         for (auto & [_, buf] : ctxs_bufs) {
+             ggml_backend_buffer_clear(buf.get(), 0);
+@@ -744,6 +762,10 @@
+ 
+ std::map<ggml_backend_buffer_type_t, size_t> llama_kv_cache::memory_breakdown() const {
+     auto ret = ctxs_bufs.memory_breakdown();
++    if (inkling_kv_vmm_matches(this)) {
++        auto * buft = ggml_backend_buffer_get_type(ctxs_bufs.bufs.front().second.get());
++        ret[buft] -= inkling_kv_vmm_unbacked();
++    }
+ 
+     for (const auto & [buft, size] : attn_rot_bufs.memory_breakdown()) {
+         ret[buft] += size;
+@@ -862,10 +884,30 @@
+         return {};
+     }
+ 
++    // All simulated placements have now been undone. Admit the entire logical batch
++    // before committing any real attention or recurrent cells. Allocation failure
++    // must not run post-compute rollback, which may remove an existing suffix.
++    if (inkling_kv_vmm_matches(this)) {
++        uint32_t high = v_cells[0].used_max_p1();
++        for (const auto & info : res) {
++            for (const auto id : info.idxs[0]) {
++                high = std::max(high, uint32_t(id + 1));
++            }
++        }
++        const uint32_t rows = std::min(get_size(), std::max(256u, uint32_t(GGML_PAD(high, 256u))));
++        try {
++            inkling_kv_vmm_rows(this, rows, true);
++        } catch (const std::exception & e) {
++            LLAMA_LOG_ERROR("Inkling elastic KV placement failed: %s\n", e.what());
++            return {};
++        }
++    }
+     return res;
+ }
+ 
+ bool llama_kv_cache::update(llama_context * lctx, bool do_shift, const stream_copy_info & sc_info) {
++    // The shift graph can write the complete K tensor, irrespective of the live cells.
++    if (do_shift || !sc_info.empty()) inkling_kv_vmm_rows(this, get_size());
+     // TODO: refactor [TAG_KV_CACHE_SHARE_CELLS]
+     if (other) {
+         return true;
+@@ -2745,6 +2787,12 @@
+ }
+ 
+ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32_t cell_count, const slot_info & sinfo) {
++    if (inkling_kv_vmm_matches(this) && cell_count) {
++        if (sinfo.idxs.empty() || sinfo.idxs[0].size() < cell_count) return false;
++        const auto & ids = sinfo.idxs[0];
++        const uint32_t high = uint32_t(*std::max_element(ids.begin(), ids.end())) + 1;
++        inkling_kv_vmm_rows(this, high);
++    }
+     auto & cells = v_cells[strm];
+ 
+     // batch the scatter reads per contiguous run of destination indices
+@@ -3086,6 +3134,11 @@
+ 
+     kv->apply_ubatch(sinfos[i_cur], ubatches[i_cur]);
+     n_kv      = kv->get_n_kv(sinfos[i_cur]);
++    // Validate against the graph's actual padded read length too.
++    if (!inkling_kv_vmm_covers(kv, uint32_t(n_kv))) {
++        LLAMA_LOG_ERROR("Inkling elastic KV graph exceeds the committed prefix\n");
++        return false;
++    }
+     n_kv_rows = kv->get_n_kv_rows(ubatches[i_cur]);
+ 
+     return true;
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -21,6 +21,7 @@
+     llama-hparams.cpp
+     llama-impl.cpp
+     llama-io.cpp
++    inkling-elastic-kv.cpp
+     llama-kv-cache.cpp
+     llama-kv-cache-iswa.cpp
+     llama-kv-cache-dsa.cpp
+@@ -72,6 +73,30 @@
+ find_package(Threads REQUIRED)
+ target_link_libraries(llama PUBLIC ggml PRIVATE Threads::Threads)
+ 
++set(LLAMA_INKLING_VMM "AUTO" CACHE STRING "Build exact CUDA VMM KV support: AUTO, ON, OFF")
++set_property(CACHE LLAMA_INKLING_VMM PROPERTY STRINGS AUTO ON OFF)
++string(TOUPPER "${LLAMA_INKLING_VMM}" inkling_vmm)
++if (NOT inkling_vmm MATCHES "^(AUTO|ON|OFF)$")
++    message(FATAL_ERROR "LLAMA_INKLING_VMM must be AUTO, ON, or OFF")
++endif()
++if (NOT inkling_vmm STREQUAL "OFF" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
++    find_path(INKLING_CUDA_INCLUDE_DIR cuda.h
++        HINTS ENV INKLING_CUDA_TOOLKIT ENV CUDA_HOME ENV CUDA_PATH "${CMAKE_SOURCE_DIR}/../cuda-dev/toolkit" /usr/local/cuda
++        PATH_SUFFIXES include)
++    if (INKLING_CUDA_INCLUDE_DIR)
++        target_include_directories(llama PRIVATE "${INKLING_CUDA_INCLUDE_DIR}" "../ggml/src")
++        target_compile_definitions(llama PRIVATE INKLING_CUDA_VMM_KV)
++        target_link_libraries(llama PRIVATE ${CMAKE_DL_LIBS})
++        message(STATUS "Inkling VMM compiled; libcuda.so.1 is resolved from the process loader at runtime")
++    elseif (inkling_vmm STREQUAL "ON")
++        message(FATAL_ERROR "Inkling VMM needs the CUDA driver header cuda.h; set INKLING_CUDA_INCLUDE_DIR")
++    else()
++        message(STATUS "Inkling VMM disabled because cuda.h was not found")
++    endif()
++elseif (inkling_vmm STREQUAL "ON")
++    message(FATAL_ERROR "Inkling VMM currently supports Linux and WSL2")
++endif()
++
+ if (BUILD_SHARED_LIBS)
+     set_target_properties(llama PROPERTIES POSITION_INDEPENDENT_CODE ON)
+     target_compile_definitions(llama PRIVATE LLAMA_BUILD)
+--- /dev/null
++++ b/src/inkling-elastic-kv.h
+@@ -0,0 +1,16 @@
++#pragma once
++#include "ggml-backend.h"
++
++#include <functional>
++struct ggml_context;
++struct llama_kv_cache;
++bool                  inkling_kv_vmm_available(bool tested_arch_only);
++ggml_backend_buffer_t inkling_kv_vmm_alloc(llama_kv_cache *           owner,
++                                           ggml_context *             ctx,
++                                           ggml_backend_buffer_type_t buft,
++                                           uint32_t                   cells);
++bool                  inkling_kv_vmm_matches(const llama_kv_cache * owner);
++void                  inkling_kv_vmm_rows(const llama_kv_cache * owner, uint32_t cells, bool shrink = false);
++bool                  inkling_kv_vmm_covers(const llama_kv_cache * owner, uint32_t rows);
++size_t                inkling_kv_vmm_unbacked();
++void                  inkling_kv_vmm_reclaim(const void * owner, std::function<void()> cb);
+--- /dev/null
++++ b/src/inkling-elastic-kv.cpp
+@@ -0,0 +1,532 @@
++#include "inkling-elastic-kv.h"
++
++#include <stdexcept>
++#ifdef INKLING_CUDA_VMM_KV
++#    include "ggml-backend-impl.h"
++#    include "ggml-cpp.h"
++
++#    include <cuda.h>
++#    include <dlfcn.h>
++
++#    include <algorithm>
++#    include <cstdio>
++#    include <cstring>
++#    include <memory>
++#    include <stdexcept>
++#    include <vector>
++
++namespace {
++// Resolve the driver only on the VMM path. Conventional CUDA and CPU builds retain
++// their normal loader behavior even on a host without libcuda installed.
++#    define IK_STRING_1(x) #x
++#    define IK_STRING(x)   IK_STRING_1(x)
++#    define IK_CUDA_SYMBOLS(X)                                        \
++        X(CtxPopCurrent, cuCtxPopCurrent)                             \
++        X(CtxPushCurrent, cuCtxPushCurrent)                           \
++        X(CtxSynchronize, cuCtxSynchronize)                           \
++        X(DeviceGet, cuDeviceGet)                                     \
++        X(DeviceGetAttribute, cuDeviceGetAttribute)                   \
++        X(DevicePrimaryCtxRelease, cuDevicePrimaryCtxRelease)         \
++        X(DevicePrimaryCtxRetain, cuDevicePrimaryCtxRetain)           \
++        X(GetErrorString, cuGetErrorString)                           \
++        X(Init, cuInit)                                               \
++        X(MemAddressFree, cuMemAddressFree)                           \
++        X(MemAddressReserve, cuMemAddressReserve)                     \
++        X(MemCreate, cuMemCreate)                                     \
++        X(MemGetAllocationGranularity, cuMemGetAllocationGranularity) \
++        X(MemMap, cuMemMap)                                           \
++        X(MemRelease, cuMemRelease)                                   \
++        X(MemSetAccess, cuMemSetAccess)                               \
++        X(MemUnmap, cuMemUnmap)                                       \
++        X(MemcpyDtoH, cuMemcpyDtoH)                                   \
++        X(MemcpyHtoD, cuMemcpyHtoD)                                   \
++        X(MemsetD8, cuMemsetD8)
++
++struct inkling_driver_api {
++    bool ready = false;
++#    define IK_FIELD(field, symbol) decltype(&::symbol) field = nullptr;
++    IK_CUDA_SYMBOLS(IK_FIELD)
++#    undef IK_FIELD
++
++    inkling_driver_api() {
++        void * library = dlopen("libcuda.so.1", RTLD_NOW | RTLD_LOCAL);
++        if (!library) {
++            return;
++        }
++#    define IK_LOAD(field, symbol)                                                    \
++        field = reinterpret_cast<decltype(field)>(dlsym(library, IK_STRING(symbol))); \
++        if (!field)                                                                   \
++            return;
++        IK_CUDA_SYMBOLS(IK_LOAD)
++#    undef IK_LOAD
++        ready = true;
++    }
++};
++
++inkling_driver_api & cuda_driver() {
++    static inkling_driver_api driver;
++    return driver;
++}
++
++#    undef IK_CUDA_SYMBOLS
++#    undef IK_STRING
++#    undef IK_STRING_1
++
++void vmm_check(CUresult r, const char * call) {
++    if (r != CUDA_SUCCESS) {
++        const char * msg = nullptr;
++        cuda_driver().GetErrorString(r, &msg);
++        throw std::runtime_error(std::string("Inkling elastic KV: ") + call + ": " + (msg ? msg : "CUDA driver error"));
++    }
++}
++
++#    define IK_CU(x) vmm_check((x), #x)
++
++struct scoped_cuda_context {
++    explicit scoped_cuda_context(CUcontext ctx) { IK_CU(cuda_driver().CtxPushCurrent(ctx)); }
++
++    ~scoped_cuda_context() {
++        CUcontext prev;
++        if (cuda_driver().CtxPopCurrent(&prev) != CUDA_SUCCESS) {
++            std::terminate();
++        }
++    }
++};
++
++// Only cuMemCreate reporting exhausted physical memory warrants evicting an expert bank.
++struct vmm_physical_oom : std::runtime_error {
++    vmm_physical_oom() : std::runtime_error("Inkling elastic KV: cuMemCreate: out of memory") {}
++};
++
++struct tensor_pages {
++    ggml_tensor * t;
++    size_t        offset, max, live;
++};
++
++struct kv_mapping {
++    llama_kv_cache *          owner;
++    CUdevice                  device = 0;
++    CUcontext                 ctx    = nullptr;
++    CUdeviceptr               va     = 0;
++    size_t                    page = 0, chunk = 0, reserved = 0, live = 0;
++    uint32_t                  cells;
++    CUmemAllocationProp       prop{};
++    CUmemAccessDesc           access{};
++    std::vector<tensor_pages> tensors;
++    const void *              reclaim_owner = nullptr;
++    std::function<void()>     reclaim;
++
++    kv_mapping(llama_kv_cache * owner, uint32_t cells) : owner(owner), cells(cells) {}
++
++    size_t round(size_t n) const { return ((n + page - 1) / page) * page; }
++
++    bool setup(ggml_context * gg) {
++        if (!cuda_driver().ready) {
++            throw std::runtime_error("Inkling elastic KV cannot load the CUDA driver VMM entry points");
++        }
++        IK_CU(cuda_driver().Init(0));
++        IK_CU(cuda_driver().DeviceGet(&device, 0));
++        int supported = 0;
++        IK_CU(cuda_driver().DeviceGetAttribute(&supported, CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
++                                               device));
++        if (!supported) {
++            throw std::runtime_error("Inkling elastic KV: CUDA0 lacks VMM");
++        }
++        IK_CU(cuda_driver().DevicePrimaryCtxRetain(&ctx, device));
++        scoped_cuda_context current(ctx);
++        prop.type          = CU_MEM_ALLOCATION_TYPE_PINNED;
++        prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
++        prop.location.id   = device;
++        access.location    = prop.location;
++        access.flags       = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
++        IK_CU(cuda_driver().MemGetAllocationGranularity(&page, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
++        chunk = page;
++        if (const char * text = std::getenv("INKLING_ELASTIC_KV_CHUNK_MIB")) {
++            char *     end   = nullptr;
++            const long value = std::strtol(text, &end, 10);
++            if (end == text || *end || value < 0 || value > 32) {
++                throw std::runtime_error("INKLING_ELASTIC_KV_CHUNK_MIB must be an integer from 0 to 32");
++            }
++            if (value) {
++                chunk = round(size_t(value) << 20);
++            }
++        }
++        for (ggml_tensor * t = ggml_get_first_tensor(gg); t; t = ggml_get_next_tensor(gg, t)) {
++            if (t->view_src) {
++                continue;
++            }
++            if (t->type != GGML_TYPE_F16 || t->ne[1] != cells || t->ne[2] != 1 || t->ne[3] != 1 ||
++                !ggml_is_contiguous(t)) {
++                throw std::runtime_error("Inkling elastic KV: unexpected global FP16 tensor layout");
++            }
++            size_t len = round(ggml_nbytes(t));
++            tensors.push_back({ t, reserved, len, 0 });
++            reserved += len;
++        }
++        if (tensors.empty() || !reserved || !inkling_cuda_budget_available()) {
++            throw std::runtime_error("Inkling elastic KV requires a nonzero shared CUDA buffer budget");
++        }
++        CUdeviceptr    address = 0;
++        const CUresult rc      = cuda_driver().MemAddressReserve(&address, reserved, 0, 0, 0);
++        const char *   mode    = std::getenv("INKLING_ELASTIC_KV");
++        if (rc != CUDA_SUCCESS && mode && std::strcmp(mode, "auto") == 0) {
++            const char * message = nullptr;
++            cuda_driver().GetErrorString(rc, &message);
++            std::fprintf(stderr,
++                         "Inkling elastic KV: using conventional KV after cuMemAddressReserve failed (%d: %s)\n",
++                         int(rc), message ? message : "CUDA driver error");
++            return false;
++        }
++        vmm_check(rc, "cuMemAddressReserve");
++        va = address;
++        return true;
++    }
++
++    ~kv_mapping() {
++        if (ctx) {
++            {
++                scoped_cuda_context current(ctx);
++                if (va) {
++                    IK_CU(cuda_driver().CtxSynchronize());
++                    for (auto & t : tensors) {
++                        unmap_down(t, 0);
++                    }
++                    IK_CU(cuda_driver().MemAddressFree(va, reserved));
++                }
++            }
++            IK_CU(cuda_driver().DevicePrimaryCtxRelease(device));
++        }
++    }
++
++    void unmap_down(tensor_pages & t, size_t bytes) {
++        while (t.live > bytes) {
++            const size_t prev          = t.live <= page ? 0 : std::max(page, ((t.live - 1) / chunk) * chunk);
++            const size_t bytes_removed = t.live - prev;
++            IK_CU(cuda_driver().MemUnmap(va + t.offset + prev, bytes_removed));
++            t.live = prev;
++            live -= bytes_removed;
++            inkling_cuda_release_external(bytes_removed);
++        }
++    }
++
++    void map_one(CUdeviceptr addr, size_t bytes) {
++        CUmemGenericAllocationHandle h;
++        const CUresult               created = cuda_driver().MemCreate(&h, bytes, &prop, 0);
++        if (created == CUDA_ERROR_OUT_OF_MEMORY) {
++            throw vmm_physical_oom();
++        }
++        vmm_check(created, "cuMemCreate");
++        CUresult       mapped   = cuda_driver().MemMap(addr, bytes, 0, h, 0);
++        const CUresult released = cuda_driver().MemRelease(h);
++        if (mapped != CUDA_SUCCESS) {
++            IK_CU(released);
++            IK_CU(mapped);
++        }
++        if (released != CUDA_SUCCESS) {
++            IK_CU(cuda_driver().MemUnmap(addr, bytes));
++            IK_CU(cuda_driver().MemRelease(h));
++            IK_CU(released);
++        }
++        try {
++            IK_CU(cuda_driver().MemSetAccess(addr, bytes, &access, 1));
++            IK_CU(cuda_driver().MemsetD8(addr, 0, bytes));
++        } catch (...) {
++            IK_CU(cuda_driver().MemUnmap(addr, bytes));
++            throw;
++        }
++    }
++
++    void resize(uint32_t rows, bool shrink) {
++        if (rows > cells) {
++            throw std::runtime_error("Inkling elastic KV row exceeds virtual reservation");
++        }
++        size_t add = 0, drop = 0;
++        auto   goal = [&](const tensor_pages & t) {
++            const size_t required = size_t(rows) * t.t->nb[1];
++            // One minimum page for short contexts; the last physical extent is
++            // clipped to this tensor's native minimum-page-aligned capacity.
++            if (required <= page) {
++                return round(required);
++            }
++            return std::min(t.max, ((required + chunk - 1) / chunk) * chunk);
++        };
++        for (auto & t : tensors) {
++            size_t target = goal(t);
++            if (target > t.live) {
++                add += target - t.live;
++            } else if (shrink) {
++                drop += t.live - target;
++            }
++        }
++        if (!add && !drop) {
++            return;
++        }
++        scoped_cuda_context current(ctx);
++        std::vector<size_t> old;
++        for (auto & t : tensors) {
++            old.push_back(t.live);
++        }
++        // Called from actual memory placement, before graph construction, or from a synchronized state operation.
++        bool reclaimed    = false;
++        auto reclaim_once = [&] {
++            if (reclaimed || !reclaim) {
++                return false;
++            }
++            reclaimed     = true;
++            auto callback = reclaim;  // the callback unregisters itself
++            callback();
++            return true;
++        };
++        for (;;) {
++            if (add && !inkling_cuda_charge_external(add)) {
++                if (reclaim_once()) {
++                    continue;
++                }
++                throw std::runtime_error("Inkling elastic KV growth exceeds the CUDA buffer limit");
++            }
++            size_t consumed = 0;
++            auto   rollback = [&] {
++                // New extents can still have zero fills outstanding on the default stream.
++                // Complete them before unmapping. Always release the unconsumed charge.
++                const CUresult synced = cuda_driver().CtxSynchronize();
++                inkling_cuda_release_external(add - consumed);
++                for (size_t i = 0; i < tensors.size(); ++i) {
++                    unmap_down(tensors[i], old[i]);
++                }
++                vmm_check(synced, "cuCtxSynchronize during KV rollback");
++            };
++            try {
++                IK_CU(cuda_driver().CtxSynchronize());
++                for (auto & t : tensors) {
++                    const size_t target = goal(t);
++                    while (t.live < target) {
++                        const size_t end =
++                            t.live == 0 ? std::min(page, t.max) : std::min(t.max, (t.live / chunk + 1) * chunk);
++                        const size_t bytes = end - t.live;
++                        map_one(va + t.offset + t.live, bytes);
++                        consumed += bytes;
++                        t.live = end;
++                        live += bytes;
++                    }
++                }
++                IK_CU(cuda_driver().CtxSynchronize());
++            } catch (const vmm_physical_oom &) {
++                rollback();
++                if (reclaim_once()) {
++                    continue;
++                }
++                throw;
++            } catch (...) {
++                rollback();
++                throw;
++            }
++            break;
++        }
++        if (shrink) {
++            for (auto & t : tensors) {
++                unmap_down(t, goal(t));
++            }
++        }
++        std::fprintf(stderr, "Inkling elastic KV: rows=%u committed=%zu MiB reserved=%zu MiB\n", rows, live >> 20,
++                     reserved >> 20);
++    }
++
++    std::pair<tensor_pages *, size_t> range(const ggml_tensor * t, size_t at, size_t n) {
++        auto p = reinterpret_cast<uintptr_t>(t->data) + at;
++        for (auto & a : tensors) {
++            auto start = va + a.offset;
++            if (p >= start && p - start <= ggml_nbytes(a.t) && n <= ggml_nbytes(a.t) - (p - start)) {
++                return { &a, p - start };
++            }
++        }
++        throw std::runtime_error("Inkling elastic KV copy outside tensor");
++    }
++
++    void check_range(const ggml_tensor * t, size_t at, size_t n) {
++        auto [p, off] = range(t, at, n);
++        if (off > p->live || n > p->live - off) {
++            throw std::runtime_error("Inkling elastic KV state IO outside committed prefix");
++        }
++    }
++};
++
++// The server serializes model decode and state commands on one worker.
++kv_mapping * active = nullptr;
++
++void free_kv(ggml_backend_buffer_t b) {
++    auto * m = static_cast<kv_mapping *>(b->context);
++    if (active == m) {
++        active = nullptr;
++    }
++    delete m;
++}
++
++void * base_kv(ggml_backend_buffer_t b) {
++    return reinterpret_cast<void *>(static_cast<kv_mapping *>(b->context)->va);
++}
++
++void set_kv(ggml_backend_buffer_t b, ggml_tensor * t, const void * d, size_t o, size_t n) {
++    auto & m            = *static_cast<kv_mapping *>(b->context);
++    auto [bank, offset] = m.range(t, o, n);
++    const size_t backed = offset < bank->live ? std::min(n, bank->live - offset) : 0;
++    if (backed < n) {
++        // Failed state restore cleanup writes zeros even to still-unmapped cells.
++        const auto * bytes = static_cast<const uint8_t *>(d);
++        if (std::any_of(bytes + backed, bytes + n, [](uint8_t v) { return v != 0; })) {
++            throw std::runtime_error("Inkling elastic KV write outside committed prefix");
++        }
++        n = backed;
++    }
++    if (!n) {
++        return;
++    }
++    scoped_cuda_context current(m.ctx);
++    IK_CU(cuda_driver().MemcpyHtoD(reinterpret_cast<CUdeviceptr>(t->data) + o, d, n));
++}
++
++void get_kv(ggml_backend_buffer_t b, const ggml_tensor * t, void * d, size_t o, size_t n) {
++    auto & m            = *static_cast<kv_mapping *>(b->context);
++    auto [bank, offset] = m.range(t, o, n);
++    const size_t backed = offset < bank->live ? std::min(n, bank->live - offset) : 0;
++    if (backed) {
++        scoped_cuda_context current(m.ctx);
++        IK_CU(cuda_driver().MemcpyDtoH(d, reinterpret_cast<CUdeviceptr>(t->data) + o, backed));
++    }
++    if (backed < n) {
++        std::memset(static_cast<uint8_t *>(d) + backed, 0, n - backed);
++    }
++}
++
++void fill_kv(ggml_backend_buffer_t b, ggml_tensor * t, uint8_t value, size_t off, size_t n) {
++    auto & m    = *static_cast<kv_mapping *>(b->context);
++    auto [p, o] = m.range(t, off, n);
++    if (!value) {
++        n = o < p->live ? std::min(n, p->live - o) : 0;
++    }
++    if (!n) {
++        return;
++    }
++    m.check_range(t, off, n);
++    scoped_cuda_context current(m.ctx);
++    IK_CU(cuda_driver().MemsetD8(reinterpret_cast<CUdeviceptr>(t->data) + off, value, n));
++    IK_CU(cuda_driver().CtxSynchronize());
++}
++
++void clear_kv(ggml_backend_buffer_t b, uint8_t value) {
++    if (value) {
++        throw std::runtime_error("Inkling elastic KV only supports zero clear");
++    }
++    static_cast<kv_mapping *>(b->context)->resize(0, true);
++}
++}  // namespace
++
++bool inkling_kv_vmm_available(bool tested_arch_only) {
++    CUdevice device;
++    int      supported = 0, major = 0, minor = 0;
++    return cuda_driver().ready && cuda_driver().Init(0) == CUDA_SUCCESS &&
++           cuda_driver().DeviceGet(&device, 0) == CUDA_SUCCESS &&
++           cuda_driver().DeviceGetAttribute(&supported, CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
++                                            device) == CUDA_SUCCESS &&
++           supported &&
++           (!tested_arch_only || (cuda_driver().DeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
++                                                                   device) == CUDA_SUCCESS &&
++                                  cuda_driver().DeviceGetAttribute(&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
++                                                                   device) == CUDA_SUCCESS &&
++                                  major == 12 && minor == 0));
++}
++
++ggml_backend_buffer_t inkling_kv_vmm_alloc(llama_kv_cache *           owner,
++                                           ggml_context *             gg,
++                                           ggml_backend_buffer_type_t buft,
++                                           uint32_t                   cells) {
++    if (active) {
++        throw std::runtime_error("Inkling elastic KV supports a single CUDA0 context");
++    }
++    auto m = std::make_unique<kv_mapping>(owner, cells);
++    if (!m->setup(gg)) {
++        return nullptr;  // No tensor has been bound. The caller can use its ordinary buffer.
++    }
++    ggml_backend_buffer_i iface{};
++    iface.free_buffer   = free_kv;
++    iface.get_base      = base_kv;
++    iface.set_tensor    = set_kv;
++    iface.get_tensor    = get_kv;
++    iface.memset_tensor = fill_kv;
++    iface.clear         = clear_kv;
++    ggml_backend_buffer_ptr buf(ggml_backend_buffer_init(buft, iface, m.get(), m->reserved));
++    auto *                  mapping = m.release();  // buffer now owns the mapping
++    for (auto & tensor : mapping->tensors) {
++        if (ggml_backend_tensor_alloc(buf.get(), tensor.t, reinterpret_cast<void *>(mapping->va + tensor.offset)) !=
++            GGML_STATUS_SUCCESS) {
++            throw std::runtime_error("Inkling elastic KV tensor binding failed");
++        }
++    }
++    for (auto * t = ggml_get_first_tensor(gg); t; t = ggml_get_next_tensor(gg, t)) {
++        if (t->view_src && ggml_backend_view_init(t) != GGML_STATUS_SUCCESS) {
++            throw std::runtime_error("Inkling elastic KV view binding failed");
++        }
++    }
++    active = mapping;
++    std::fprintf(stderr, "Inkling elastic KV: reserved=%zu MiB, %zu FP16 tensors, page=%zu KiB chunk=%zu KiB\n",
++                 active->reserved >> 20, active->tensors.size(), active->page >> 10, active->chunk >> 10);
++    return buf.release();
++}
++
++bool inkling_kv_vmm_matches(const llama_kv_cache * owner) {
++    return active && active->owner == owner;
++}
++
++void inkling_kv_vmm_rows(const llama_kv_cache * owner, uint32_t cells, bool shrink) {
++    if (inkling_kv_vmm_matches(owner)) {
++        active->resize(cells, shrink);
++    }
++}
++
++bool inkling_kv_vmm_covers(const llama_kv_cache * owner, uint32_t rows) {
++    if (!inkling_kv_vmm_matches(owner)) {
++        return true;
++    }
++    for (auto & t : active->tensors) {
++        if (size_t(rows) * t.t->nb[1] > t.live) {
++            return false;
++        }
++    }
++    return true;
++}
++
++size_t inkling_kv_vmm_unbacked() {
++    return active ? active->reserved - active->live : 0;
++}
++
++void inkling_kv_vmm_reclaim(const void * owner, std::function<void()> cb) {
++    if (active && (cb || active->reclaim_owner == owner)) {
++        active->reclaim_owner = cb ? owner : nullptr;
++        active->reclaim       = std::move(cb);
++    }
++}
++
++#else
++bool inkling_kv_vmm_available(bool) {
++    return false;
++}
++
++ggml_backend_buffer_t inkling_kv_vmm_alloc(llama_kv_cache *, ggml_context *, ggml_backend_buffer_type_t, uint32_t) {
++    throw std::runtime_error("requested elastic KV needs a runtime built with LLAMA_INKLING_VMM=ON");
++}
++
++bool inkling_kv_vmm_matches(const llama_kv_cache *) {
++    return false;
++}
++
++bool inkling_kv_vmm_covers(const llama_kv_cache *, uint32_t) {
++    return true;
++}
++
++void inkling_kv_vmm_rows(const llama_kv_cache *, uint32_t, bool) {}
++
++size_t inkling_kv_vmm_unbacked() {
++    return 0;
++}
++
++void inkling_kv_vmm_reclaim(const void *, std::function<void()>) {}
++#endif
+--- a/src/llama-kv-cache-iswa.cpp
++++ b/src/llama-kv-cache-iswa.cpp
+@@ -324,12 +324,8 @@
+ bool llama_kv_cache_iswa_context::apply() {
+     assert(!llama_memory_status_is_fail(status));
+ 
+-    bool res = true;
+-
+-    res = res & ctx_base->apply();
+-    res = res & ctx_swa ->apply();
+-
+-    return res;
++    // Admit global KV pages before advancing sliding-window cells.
++    return ctx_base->apply() && ctx_swa->apply();
+ }
+ 
+ llama_memory_status llama_kv_cache_iswa_context::get_status() const {
+--- a/src/llama-memory-hybrid-iswa.cpp
++++ b/src/llama-memory-hybrid-iswa.cpp
+@@ -260,12 +260,8 @@
+ bool llama_memory_hybrid_iswa_context::apply() {
+     assert(!llama_memory_status_is_fail(status));
+ 
+-    bool res = true;
+-
+-    res = res & ctx_attn->apply();
+-    res = res & ctx_recr->apply();
+-
+-    return res;
++    // Advance the recurrent state only after attention admits the batch.
++    return ctx_attn->apply() && ctx_recr->apply();
+ }
+ 
+ llama_memory_status llama_memory_hybrid_iswa_context::get_status() const {

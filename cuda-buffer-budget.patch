@@ -1,0 +1,75 @@
+--- a/ggml/src/ggml-backend.cpp
++++ b/ggml/src/ggml-backend.cpp
+@@ -20,6 +20,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <algorithm>
++#include <mutex>
+ #include <unordered_map>
+ #include <vector>
+ 
+@@ -36,13 +37,47 @@
+     return buft->iface.get_name(buft);
+ }
+ 
++// The launcher exposes a single device as CUDA0. Reserve space for the standard
++// backend buffers before asking the driver, including concurrent allocations.
++struct cuda_buffer_budget {
++    size_t limit;
++    size_t live = 0;
++    std::mutex mutex;
++    std::unordered_map<ggml_backend_buffer_t, size_t> allocations;
++
++    cuda_buffer_budget() {
++        const char * value = getenv("INKLING_BUFFER_LIMIT_BYTES");
++        limit = value ? strtoull(value, nullptr, 10) : 0;
++    }
++};
++
++static cuda_buffer_budget & buffer_budget() {
++    static cuda_buffer_budget budget;
++    return budget;
++}
++
+ ggml_backend_buffer_t ggml_backend_buft_alloc_buffer(ggml_backend_buffer_type_t buft, size_t size) {
+     GGML_ASSERT(buft);
+     if (size == 0) {
+         // return a dummy buffer for zero-sized allocations
+         return ggml_backend_buffer_init(buft, {}, NULL, 0);
+     }
+-    return buft->iface.alloc_buffer(buft, size);
++    auto & budget = buffer_budget();
++    if (!budget.limit || strcmp(ggml_backend_buft_name(buft), "CUDA0") != 0) {
++        return buft->iface.alloc_buffer(buft, size);
++    }
++    std::lock_guard<std::mutex> lock(budget.mutex);
++    if (size > budget.limit - budget.live) {
++        GGML_LOG_ERROR("Inkling CUDA buffer limit: %zu live + %zu requested exceeds %zu bytes\n",
++                       budget.live, size, budget.limit);
++        return nullptr;
++    }
++    ggml_backend_buffer_t result = buft->iface.alloc_buffer(buft, size);
++    if (result) {
++        budget.allocations.emplace(result, size);
++        budget.live += size;
++    }
++    return result;
+ }
+ 
+ // shared planning logic for allocating a list of tensors into one or more buffers of the given type
+@@ -261,6 +296,15 @@
+     if (buffer->iface.free_buffer != NULL) {
+         buffer->iface.free_buffer(buffer);
+     }
++    auto & budget = buffer_budget();
++    if (budget.limit) {
++        std::lock_guard<std::mutex> lock(budget.mutex);
++        auto it = budget.allocations.find(buffer);
++        if (it != budget.allocations.end()) {
++            budget.live -= it->second;
++            budget.allocations.erase(it);
++        }
++    }
+     delete buffer;
+ }
+ 

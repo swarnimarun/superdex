@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""Build the optional SM120 compact-attention runtime alongside the standard runtime."""
+import fcntl
+import argparse
+import hashlib
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+ROOT = Path(__file__).resolve().parents[1]
+RUNTIME = ROOT / ".runtime"
+UPSTREAM = RUNTIME / "llama.cpp-b12602"
+BUILD = RUNTIME / "model-build"
+PREFIX = RUNTIME / "compact-fa-native"
+NATIVE = ROOT / "native" / "compact-fa"
+CUDA_RUNTIME = RUNTIME / "cudart-llama-b12602-bin-ubuntu-cuda-12.8-x64"
+PATCH = ROOT / "inkling-native-compact-fa.patch"
+
+
+def find_clang():
+    if os.environ.get("INKLING_PTX_CLANG"):
+        return os.environ["INKLING_PTX_CLANG"]
+    candidates = [shutil.which(name) for name in ("clang-21", "clang-22", "clang")]
+    # On Nix, clang from an existing dependency may be outside the active PATH.
+    for pattern in ("*-clang-21.*/bin/clang", "*-clang-*/bin/clang"):
+        candidates.extend(sorted(Path("/nix/store").glob(pattern)))
+    for compiler in dict.fromkeys(filter(None, candidates)):
+        version = subprocess.run([compiler, "--version"], capture_output=True, text=True)
+        major = re.search(r"clang version (\d+)", version.stdout)
+        if not major or int(major[1]) < 21:
+            continue
+        # A Nix wrapper may inject CPU-only flags despite listing the NVPTX target.
+        probe = subprocess.run([compiler, "-x", "cuda", "-nocudainc", "-nocudalib", "--cuda-device-only",
+                                "--cuda-gpu-arch=sm_120", "-S", "/dev/null", "-o", "/dev/null"],
+                               capture_output=True)
+        if probe.returncode == 0:
+            return str(compiler)
+    raise ValueError("Set INKLING_PTX_CLANG to Clang 21 or later built with the NVPTX target")
+
+
+def native_toolchain():
+    installed = shutil.which("nvcc")
+    roots = [os.getenv("INKLING_CUDA_TOOLKIT"), os.getenv("CUDA_HOME"),
+             RUNTIME / "cuda-dev/toolkit", Path(installed).parent.parent if installed else None,
+             "/usr/local/cuda"]
+    toolkit = next((Path(p) for p in roots if p and (Path(p) / "bin/nvcc").is_file()), None)
+    if toolkit is None:
+        raise ValueError("Set INKLING_CUDA_TOOLKIT to a CUDA 12.8 toolkit with cuBLAS headers")
+    explicit = os.getenv("NVCC_CCBIN")
+    if explicit:
+        return toolkit, explicit
+    hosts = [shutil.which("g++-14"), shutil.which("g++-13"), shutil.which("g++")]
+    hosts.extend(Path("/nix/store").glob("*-gcc-wrapper-14.*/bin/g++"))
+    for host in filter(None, hosts):
+        version = subprocess.check_output([host, "-dumpversion"], text=True).strip()
+        if version.split(".")[0].isdigit() and 8 <= int(version.split(".")[0]) <= 14:
+            return toolkit, str(host)
+    raise ValueError("Set NVCC_CCBIN to a GCC host compiler supported by CUDA 12.8")
+
+
+def build_native(work, output, compiler, toolkit, host):
+    path = Path("ggml/src/ggml-cuda")
+    src = UPSTREAM / path
+    patched = work / path
+    patched.mkdir(parents=True)
+    for name in ("fattn-common.cuh", "fattn-mma-f16.cuh", "fattn-vec.cuh"):
+        shutil.copy(src / name, patched / name)
+    with PATCH.open() as diff:
+        subprocess.run(["patch", "--batch", "-p1"], cwd=work, stdin=diff,
+                       stdout=subprocess.DEVNULL, check=True)
+    # These plug-ins share the b12602 CUDA context ABI.
+    for source, library, libraries in [
+            (NATIVE / "native.cu", "libinkling-native-fa.so", ["-lggml-cuda"]),
+            (ROOT / "native/controller/controller.cu", "libinkling-controller.so", ["-lggml-cuda"]),
+            (ROOT / "native/shortconv/shortconv.cu", "libinkling-shortconv.so", ["-lggml-cuda"]),
+            (ROOT / "native/expert-transfer/upload.cu", "libinkling-batch-h2d.so", []),
+            (ROOT / "native/expert-transfer/device-routes.cu", "libinkling-device-routes.so", ["-lggml-cuda"])]:
+        obj = work / (source.stem + ".o")
+        # The stock expert policy uses FP32 exponential decay and explicit FP32 rounding.
+        math_flags = [] if library == "libinkling-device-routes.so" else ["--use_fast_math"]
+        subprocess.run([toolkit / "bin/nvcc", "-ccbin", host, "-arch=sm_120", "-std=c++17", "-O3",
+                        *math_flags, "--extended-lambda", "--expt-relaxed-constexpr",
+                        "-Xcompiler=-fPIC,-fvisibility=hidden", "-DGGML_USE_CUDA", "-DGGML_CUDA_USE_GRAPHS",
+                        "-DGGML_SHARED", "-DGGML_BACKEND_SHARED", "-I", patched, "-I", UPSTREAM / "ggml/include",
+                        "-I", UPSTREAM / "ggml/src", "-I", src, "-I", toolkit / "include",
+                        "-c", source, "-o", obj], check=True)
+        subprocess.run([compiler, "-shared", "-Wl,-z,defs", obj, "-L", RUNTIME / "llama-b12602", "-L", CUDA_RUNTIME,
+                        *libraries, "-l:libggml-base.so.1", "-l:libcudart.so.12",
+                        "-ldl", "-o", output / library], check=True)
+
+    # Compile the differential check against the same host policy as the server.
+    cache_source = (UPSTREAM / "src/llama-moe-cache.cpp").read_text()
+    start = cache_source.index("struct moe_cache_lru {")
+    end = cache_source.index("// gate, up, down", start)
+    (work / "inkling-reference-lru.inc").write_text(cache_source[start:end])
+    subprocess.run([compiler, "-std=c++17", "-O2", "-UNDEBUG", "-I", work, "-I", UPSTREAM / "ggml/include",
+                    "-I", UPSTREAM / "ggml/src", "-I", toolkit / "include",
+                    ROOT / "native/expert-transfer/check-graph-routes.cpp",
+                    "-L", output, "-L", RUNTIME / "llama-b12602", "-L", CUDA_RUNTIME,
+                    "-Wl,--allow-shlib-undefined", "-linkling-device-routes", "-lggml-cuda",
+                    "-l:libggml-base.so.1", "-l:libcudart.so.12", "-o", output / "check-graph-routes"], check=True)
+    subprocess.run([compiler, "-std=c++17", "-O2", "-I", work, "-I", UPSTREAM / "ggml/include",
+                    "-I", toolkit / "include", ROOT / "native/expert-transfer/check-routes.cpp",
+                    "-L", output, "-L", RUNTIME / "llama-b12602", "-L", CUDA_RUNTIME,
+                    "-Wl,--allow-shlib-undefined", "-linkling-device-routes", "-lggml-cuda", "-l:libggml-base.so.1", "-l:libcudart.so.12",
+                    "-o", output / "check-device-routes"], check=True)
+    for family in ("controller", "shortconv"):
+        subprocess.run([compiler, "-std=c++17", "-O2", "-I", UPSTREAM / "ggml/include",
+                        ROOT / "native" / family / "check.cpp", "-L", RUNTIME / "llama-b12602",
+                        "-Wl,--allow-shlib-undefined", "-lggml-cuda", "-l:libggml-base.so.1", "-ldl",
+                        "-o", output / f"check-{family}"], check=True)
+
+
+def build(work, compiler, clang, native):
+    output = work / "bin"
+    output.mkdir()
+    common = [compiler, "-std=c++17", "-O2", "-fPIC", "-shared", "-Wl,-z,defs",
+              "-I", UPSTREAM / "ggml/include"]
+    support = NATIVE / "support.cpp"
+    subprocess.run([*common, ROOT / "native/compact-fa-dispatch.cpp", support,
+                    "-ldl", "-o", output / "libinkling-compact-dispatch.so"], check=True)
+    if native:
+        build_native(work, output, compiler, *native)
+    if clang:
+        ptx = work / "compact.ptx"
+        subprocess.run([clang, "-x", "cuda", "-nocudainc", "-nocudalib", "--cuda-device-only",
+                        "--cuda-gpu-arch=sm_120", "-O3", "-S", NATIVE / "compact.cu", "-o", ptx], check=True)
+        (work / "compact_ptx.inc").write_text(
+            'static constexpr char compact_ptx[] = R"INKLING(' + ptx.read_text() + ')INKLING";\n')
+        subprocess.run([*common, "-I", work, NATIVE / "launch.cpp", support, "-ldl",
+                        "-o", output / "libinkling-compact-fa.so"], check=True)
+    return output
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--native", action="store_true",
+                        help="build the b12602 FP16 MMA kernel using CUDA 12.8 (default)")
+    parser.add_argument("--hand", action="store_true",
+                        help="build the standalone FP32 accumulator kernel using Clang 21+")
+    parser.add_argument("--capture", action="store_true",
+                        help="also build the one-shot synthetic activation capture plug-in")
+    args = parser.parse_args()
+    if not (RUNTIME / "llama-b12602/.inkling-ready").is_file():
+        raise ValueError("Run ./setup.sh first for the pinned b12602 headers, plugin and CUDA libraries")
+
+    # Keep the C++ ABI aligned with the installed backend, including builds on Nix.
+    cache = BUILD / "CMakeCache.txt"
+    match = re.search(r"(?m)^CMAKE_CXX_COMPILER:[^=]+=(.+)$", cache.read_text()) if cache.is_file() else None
+    compiler = os.getenv("CXX") or (match[1] if match else shutil.which("c++"))
+    if not compiler:
+        raise ValueError("Set CXX to a C++17 compiler")
+    clang = find_clang() if args.hand else None
+    native = native_toolchain() if args.native or not args.hand else None
+
+    inputs = [Path(__file__), ROOT / "native/compact-fa-dispatch.cpp", NATIVE / "launch.hpp", NATIVE / "support.cpp"]
+    if clang:
+        inputs.extend([NATIVE / "launch.cpp", NATIVE / "compact.cu"])
+    if native:
+        inputs.extend([NATIVE / "native.cu", PATCH, ROOT / "native/controller/controller.cu",
+                       ROOT / "native/controller/check.cpp", ROOT / "native/shortconv/shortconv.cu",
+                       ROOT / "native/shortconv/check.cpp", ROOT / "native/expert-transfer/upload.cu",
+                       ROOT / "native/expert-transfer/inkling-expert-upload.h",
+                       ROOT / "native/expert-transfer/device-routes.cu", ROOT / "native/expert-transfer/check-routes.cpp",
+                       ROOT / "native/expert-transfer/check-graph-routes.cpp", ROOT / "native/expert-transfer/inkling-device-routes.h", UPSTREAM / "src/llama-moe-cache.cpp"])
+    if args.capture:
+        inputs.append(ROOT / "native/compact-fa-capture.cpp")
+    digest = hashlib.sha256(repr((compiler, clang, native)).encode())
+    for src in inputs:
+        digest.update(src.read_bytes())
+
+    PREFIX.mkdir(parents=True, exist_ok=True)
+    destination = PREFIX / digest.hexdigest()[:16]
+    with (RUNTIME / "build-low-priority.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        os.nice(15)
+        if not destination.is_dir():
+            with tempfile.TemporaryDirectory(dir=PREFIX) as tmp:
+                work = Path(tmp)
+                output = build(work, compiler, clang, native)
+                if args.capture:
+                    subprocess.run([compiler, "-std=c++17", "-O2", "-shared", "-fPIC", "-Wl,-z,defs",
+                                    "-I", UPSTREAM / "ggml/include", ROOT / "native/compact-fa-capture.cpp",
+                                    "-ldl", "-o", output / "libinkling-compact-capture.so"], check=True)
+                output.rename(destination)
+        link = PREFIX / ".current.new"
+        link.unlink(missing_ok=True)
+        link.symlink_to(destination.name)
+        link.replace(PREFIX / "current")
+    print(f"Built {destination}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        sys.exit(str(error))
