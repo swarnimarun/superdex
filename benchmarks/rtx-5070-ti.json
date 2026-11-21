@@ -1,0 +1,274 @@
+{
+  "hardware": "RTX 5070 Ti, Ryzen 9 9950X3D, WSL2",
+  "context_tokens": 16384,
+  "microbatch": 64,
+  "gpu_ceiling_decimal_gb": 14,
+  "requested_incremental_gib": 7,
+  "placement_reserve_mib": 1792,
+  "threads": 8,
+  "decode_tokens_per_trial": 96,
+  "trials_per_run": 2,
+  "quality_method": "Greedy decoding. Three probes per prompt use fixed reference token prefixes at offsets 0, 4 and 8.",
+  "prompts": [
+    "The capital of France is",
+    "def factorial(n):\n    if n <= 1:\n        return 1\n    return",
+    "The next prime after 31 is",
+    "Translate 'good morning' into French:",
+    "In JSON, an array containing the numbers one, two and three is written",
+    "A bicycle has two wheels. Seven bicycles have",
+    "The derivative of x squared with respect to x is",
+    "To inspect the current Git working tree, run git"
+  ],
+  "runs": [
+    {
+      "run": "dspark",
+      "placement": "cache",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5863,
+      "peak_device_mib": 11586,
+      "median_decode_tps": 8.86,
+      "decode_tps": [
+        8.29,
+        9.44
+      ],
+      "arithmetic_smoke": "56",
+      "tasks": {
+        "arithmetic": true,
+        "json": true,
+        "python": true,
+        "tool": true
+      },
+      "matching_next_tokens": 24,
+      "identical_12_token_continuations": 7
+    },
+    {
+      "run": "iq3-hybrid",
+      "placement": "hybrid",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5735,
+      "peak_device_mib": 11458,
+      "median_decode_tps": 23.68,
+      "decode_tps": [
+        22.78,
+        24.58
+      ],
+      "arithmetic_smoke": "56"
+    },
+    {
+      "run": "iq3-static",
+      "placement": "static",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5313,
+      "peak_device_mib": 11036,
+      "median_decode_tps": 22.75,
+      "decode_tps": [
+        22.66,
+        22.84
+      ],
+      "arithmetic_smoke": "56"
+    },
+    {
+      "run": "iq3",
+      "placement": "cache",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5753,
+      "peak_device_mib": 11574,
+      "median_decode_tps": 27.44,
+      "decode_tps": [
+        27.29,
+        27.6
+      ],
+      "arithmetic_smoke": "56",
+      "tasks": {
+        "arithmetic": true,
+        "json": true,
+        "python": true,
+        "tool": true
+      },
+      "matching_next_tokens": 21,
+      "identical_12_token_continuations": 3
+    },
+    {
+      "run": "q4-hybrid",
+      "placement": "hybrid",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5733,
+      "peak_device_mib": 11456,
+      "median_decode_tps": 16.93,
+      "decode_tps": [
+        16.38,
+        17.49
+      ],
+      "arithmetic_smoke": "56"
+    },
+    {
+      "run": "q4-static",
+      "placement": "static",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5229,
+      "peak_device_mib": 11022,
+      "median_decode_tps": 18.73,
+      "decode_tps": [
+        18.87,
+        18.59
+      ],
+      "arithmetic_smoke": "56"
+    },
+    {
+      "run": "q4",
+      "placement": "cache",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5767,
+      "peak_device_mib": 11588,
+      "median_decode_tps": 20.46,
+      "decode_tps": [
+        19.87,
+        21.04
+      ],
+      "arithmetic_smoke": "56",
+      "tasks": {
+        "arithmetic": true,
+        "json": true,
+        "python": true,
+        "tool": true
+      },
+      "matching_next_tokens": 24,
+      "identical_12_token_continuations": 7
+    },
+    {
+      "run": "q4xl-hybrid",
+      "placement": "hybrid",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5737,
+      "peak_device_mib": 11460,
+      "median_decode_tps": 16.19,
+      "decode_tps": [
+        16.25,
+        16.13
+      ],
+      "arithmetic_smoke": "56"
+    },
+    {
+      "run": "q4xl-static",
+      "placement": "static",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5299,
+      "peak_device_mib": 11092,
+      "median_decode_tps": 18.39,
+      "decode_tps": [
+        18.31,
+        18.47
+      ],
+      "arithmetic_smoke": "56"
+    },
+    {
+      "run": "q4xl",
+      "placement": "cache",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5761,
+      "peak_device_mib": 11554,
+      "median_decode_tps": 20.36,
+      "decode_tps": [
+        19.75,
+        20.97
+      ],
+      "arithmetic_smoke": "56",
+      "tasks": {
+        "arithmetic": true,
+        "json": true,
+        "python": true,
+        "tool": true
+      },
+      "matching_next_tokens": 24,
+      "identical_12_token_continuations": 6
+    },
+    {
+      "run": "reference-hybrid",
+      "placement": "hybrid",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5729,
+      "peak_device_mib": 11452,
+      "median_decode_tps": 10.23,
+      "decode_tps": [
+        10.17,
+        10.29
+      ],
+      "arithmetic_smoke": "56"
+    },
+    {
+      "run": "reference-static",
+      "placement": "static",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5685,
+      "peak_device_mib": 11478,
+      "median_decode_tps": 15.24,
+      "decode_tps": [
+        15.48,
+        15.0
+      ],
+      "arithmetic_smoke": "56"
+    },
+    {
+      "run": "reference",
+      "placement": "cache",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5787,
+      "peak_device_mib": 11609,
+      "median_decode_tps": 13.06,
+      "decode_tps": [
+        12.77,
+        13.35
+      ],
+      "arithmetic_smoke": "56",
+      "tasks": {
+        "arithmetic": true,
+        "json": true,
+        "python": true,
+        "tool": true
+      },
+      "matching_next_tokens": 24,
+      "identical_12_token_continuations": 8
+    },
+    {
+      "run": "upstream",
+      "placement": "cache",
+      "incremental_budget_mib": 7168,
+      "peak_incremental_mib": 5765,
+      "peak_device_mib": 11488,
+      "median_decode_tps": 12.75,
+      "decode_tps": [
+        12.27,
+        13.24
+      ],
+      "arithmetic_smoke": "56",
+      "tasks": {
+        "arithmetic": true,
+        "json": true,
+        "python": true,
+        "tool": true
+      },
+      "matching_next_tokens": 23,
+      "identical_12_token_continuations": 8
+    }
+  ],
+  "pi_ls": {
+    "q4xl": {
+      "commands": [
+        "ls -la"
+      ],
+      "cold_prompt_tokens": 1621,
+      "cold_prefill_s": 35.02,
+      "omitted_visible_entries": [
+        "shared-expert-cache.patch"
+      ]
+    },
+    "reference": {
+      "commands": [
+        "ls -la"
+      ],
+      "cold_prompt_tokens": 1621,
+      "cold_prefill_s": 28.97,
+      "omitted_visible_entries": []
+    }
+  }
+}

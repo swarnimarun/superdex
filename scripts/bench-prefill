@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Measure cold prompt processing at several lengths on one running llama-server."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+from statistics import median
+import sys
+from urllib.error import URLError
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from inkling import api
+
+
+SEED_TEXT = ("Rain gauges measure daily precipitation. Weather stations report the air temperature "
+             "and pressure each hour. Observers compare those readings.\n")
+
+
+def sweep(port, lengths, repeats, decode_tokens, timeout):
+    props = api(port, "props")
+    context = props["default_generation_settings"]["n_ctx"]
+    if max(lengths) + decode_tokens > context:
+        raise ValueError(f"Requested prompt and reply exceed the running slot's {context}-token context")
+    seed_ids = api(port, "tokenize", {"content": SEED_TEXT, "add_special": False})["tokens"]
+    if not seed_ids:
+        raise ValueError("The running model returned an empty token sequence")
+
+    options = {"cache_prompt": False, "temperature": 0, "seed": 42, "ignore_eos": True}
+    api(port, "completion", {**options, "prompt": seed_ids[:max(lengths)], "n_predict": 1}, timeout=timeout)
+    results = []
+    for length in lengths:
+        ids = (seed_ids * ((length + len(seed_ids) - 1) // len(seed_ids)))[:length]
+        trials = []
+        for number in range(1, repeats + 1):
+            response = api(port, "completion", {**options, "prompt": ids, "n_predict": decode_tokens},
+                           timeout=timeout)
+            timing = response["timings"]
+            actual = timing["cache_n"], timing["prompt_n"], timing["predicted_n"]
+            if actual != (0, length, decode_tokens):
+                raise ValueError(f"Expected 0 cached, {length} prompt and {decode_tokens} output tokens, got {actual}")
+            trials.append(timing)
+            print(f"{length} tokens, trial {number}: prefill {timing['prompt_per_second']:.1f} t/s, "
+                  f"decode {timing['predicted_per_second']:.1f} t/s", file=sys.stderr, flush=True)
+        encoded_ids = json.dumps(ids, separators=(",", ":")).encode()
+        results.append({"prompt_tokens": length, "prompt_ids_sha256": hashlib.sha256(encoded_ids).hexdigest(),
+                        "median_prefill_tps": median(row["prompt_per_second"] for row in trials),
+                        "median_decode_tps": median(row["predicted_per_second"] for row in trials),
+                        "trials": trials})
+    if api(port, "props")["model_path"] != props["model_path"]:
+        raise ValueError("The running model changed during the sweep")
+    return {"model_path": props["model_path"], "context_tokens": context, "seed_token_ids": seed_ids,
+            "decode_tokens": decode_tokens, "repeats": repeats, "results": results}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, epilog=(
+        "Uses the native backend port. Each trial sends the same repeated token IDs for its prompt length. "
+        "The model stays warm and every timed request must report zero cached prompt tokens."))
+    parser.add_argument("lengths", metavar="TOKENS", type=int, nargs="*", default=[1024, 16384],
+                        help="prompt token counts (default 1024 16384)")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("INKLING_BACKEND_PORT", "18567")))
+    parser.add_argument("--repeats", type=int, default=2)
+    parser.add_argument("--decode-tokens", type=int, default=64)
+    parser.add_argument("--timeout", type=int, default=7200, help="seconds per completion (default 7200)")
+    args = parser.parse_args()
+    if min(*args.lengths, args.repeats, args.decode_tokens, args.timeout) < 1:
+        parser.error("Prompt lengths, repeats, decode tokens and timeout must be positive")
+    if not 1 <= args.port <= 65535:
+        parser.error("Choose a backend port between 1 and 65535")
+    try:
+        result = sweep(args.port, args.lengths, args.repeats, args.decode_tokens, args.timeout)
+    except (KeyError, ValueError, URLError, TimeoutError) as error:
+        parser.exit(1, f"Cold prefill benchmark failed: {error}\n")
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

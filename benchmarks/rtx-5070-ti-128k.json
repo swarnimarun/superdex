@@ -1,0 +1,661 @@
+{
+  "hardware": "RTX 5070 Ti, Ryzen 9 9950X3D, WSL2",
+  "window": 131072,
+  "checkpoint": "Unsloth UD-Q8_K_XL reference",
+  "reserve_mib": 2304,
+  "method": "One GPU, serial trials, greedy generation, prior graph with depth-prefix and shared-expert optimizations. Memory peaks sampled by the runtime include changes by other applications. Quality compared to the 16k FP16 reference using identical prompt prefixes.",
+  "placement_trials": [
+    {
+      "keys": "f16",
+      "values": "f16",
+      "mode": "cache",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0.0,
+      "microbatch": 16,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        16.54,
+        17.72
+      ],
+      "decode_tps": [
+        10.37,
+        10.93
+      ],
+      "decode_median_tps": 10.65,
+      "peak_device_mib": 11415,
+      "peak_growth_mib": 8364,
+      "expert_cache_mib": 1087
+    },
+    {
+      "keys": "f16",
+      "values": "f16",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0,
+      "microbatch": 32,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        28.06,
+        26.29
+      ],
+      "decode_tps": [
+        16.3,
+        16.66
+      ],
+      "decode_median_tps": 16.48,
+      "peak_device_mib": 11276,
+      "peak_growth_mib": 8201
+    },
+    {
+      "keys": "f16",
+      "values": "f16",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0.0,
+      "microbatch": 16,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        26.64,
+        27.33
+      ],
+      "decode_tps": [
+        16.72,
+        16.81
+      ],
+      "decode_median_tps": 16.77,
+      "peak_device_mib": 11336,
+      "peak_growth_mib": 8226
+    },
+    {
+      "keys": "f16",
+      "values": "f16",
+      "mode": "auto",
+      "gpu_layers": 25,
+      "cpu_miss_share": 0,
+      "microbatch": 16,
+      "cpu_threads": 16,
+      "device_ceiling_gb": 10,
+      "prompt_tokens": 256,
+      "decode_tokens": 48,
+      "trials": 1,
+      "prompt_tps": [
+        33.71
+      ],
+      "decode_tps": [
+        5.55
+      ],
+      "decode_median_tps": 5.55,
+      "peak_device_mib": 6826,
+      "peak_growth_mib": 3774
+    },
+    {
+      "keys": "f16",
+      "values": "f16",
+      "mode": "auto",
+      "gpu_layers": 49,
+      "cpu_miss_share": 0,
+      "microbatch": 32,
+      "cpu_threads": 16,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 1024,
+      "decode_tokens": 48,
+      "trials": 1,
+      "prompt_tps": [
+        65.3
+      ],
+      "decode_tps": [
+        15.33
+      ],
+      "decode_median_tps": 15.33,
+      "peak_device_mib": 11217,
+      "peak_growth_mib": 8204
+    },
+    {
+      "keys": "f16",
+      "values": "f16",
+      "mode": "static",
+      "gpu_layers": 49,
+      "cpu_miss_share": 0,
+      "microbatch": 16,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 1024,
+      "decode_tokens": 48,
+      "trials": 1,
+      "prompt_tps": [
+        43.26
+      ],
+      "decode_tps": [
+        16.83
+      ],
+      "decode_median_tps": 16.83,
+      "peak_device_mib": 12074,
+      "peak_growth_mib": 9091
+    },
+    {
+      "keys": "f16",
+      "values": "f16",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0,
+      "microbatch": 32,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 1024,
+      "decode_tokens": 48,
+      "trials": 1,
+      "prompt_tps": [
+        51.54
+      ],
+      "decode_tps": [
+        16.8
+      ],
+      "decode_median_tps": 16.8,
+      "peak_device_mib": 11191,
+      "peak_growth_mib": 8210,
+      "matching_next_tokens_of_24": 24,
+      "identical_continuations_of_8": 8,
+      "functional_checks": {
+        "arithmetic": true,
+        "json": true,
+        "python": true,
+        "tool": true
+      }
+    },
+    {
+      "keys": "q8_0",
+      "values": "q8_0",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0,
+      "microbatch": 32,
+      "cpu_threads": 16,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 1024,
+      "decode_tokens": 48,
+      "trials": 1,
+      "prompt_tps": [
+        83.65
+      ],
+      "decode_tps": [
+        18.42
+      ],
+      "decode_median_tps": 18.42,
+      "peak_device_mib": 11370,
+      "peak_growth_mib": 8387
+    },
+    {
+      "keys": "q8_0",
+      "values": "q8_0",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0,
+      "microbatch": 32,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 1024,
+      "decode_tokens": 48,
+      "trials": 1,
+      "prompt_tps": [
+        60.75
+      ],
+      "decode_tps": [
+        18.25
+      ],
+      "decode_median_tps": 18.25,
+      "peak_device_mib": 11346,
+      "peak_growth_mib": 8271,
+      "matching_next_tokens_of_24": 24,
+      "identical_continuations_of_8": 6,
+      "functional_checks": {
+        "arithmetic": true,
+        "json": true,
+        "python": true,
+        "tool": true
+      }
+    },
+    {
+      "keys": "q8_0",
+      "values": "q8_0",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0,
+      "microbatch": 64,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 1024,
+      "decode_tokens": 48,
+      "trials": 1,
+      "prompt_tps": [
+        66.21
+      ],
+      "decode_tps": [
+        18.05
+      ],
+      "decode_median_tps": 18.05,
+      "peak_device_mib": 11094,
+      "peak_growth_mib": 8111
+    },
+    {
+      "keys": "q4_0",
+      "values": "q4_0",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0,
+      "microbatch": 16,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        36.29,
+        34.54
+      ],
+      "decode_tps": [
+        21.34,
+        21.14
+      ],
+      "decode_median_tps": 21.24,
+      "peak_device_mib": 11286,
+      "peak_growth_mib": 8211
+    },
+    {
+      "keys": "q8_0",
+      "values": "f16",
+      "mode": "cache",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0.5,
+      "microbatch": 16,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        20.04,
+        25.06
+      ],
+      "decode_tps": [
+        15.07,
+        16.9
+      ],
+      "decode_median_tps": 15.99,
+      "peak_device_mib": 11418,
+      "peak_growth_mib": 8344,
+      "expert_cache_mib": 2068
+    },
+    {
+      "keys": "q8_0",
+      "values": "f16",
+      "mode": "cache",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0.0,
+      "microbatch": 16,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        16.75,
+        19.76
+      ],
+      "decode_tps": [
+        14.26,
+        15.2
+      ],
+      "decode_median_tps": 14.73,
+      "peak_device_mib": 11407,
+      "peak_growth_mib": 8336,
+      "expert_cache_mib": 2071
+    },
+    {
+      "keys": "q8_0",
+      "values": "f16",
+      "mode": "hybrid",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0.0,
+      "microbatch": 16,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        16.81,
+        19.54
+      ],
+      "decode_tps": [
+        14.46,
+        14.97
+      ],
+      "decode_median_tps": 14.71,
+      "peak_device_mib": 11404,
+      "peak_growth_mib": 8329,
+      "expert_cache_mib": 2067
+    },
+    {
+      "keys": "q8_0",
+      "values": "q8_0",
+      "mode": "cache",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0,
+      "microbatch": 16,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        16.33,
+        19.72
+      ],
+      "decode_tps": [
+        16.72,
+        18.2
+      ],
+      "decode_median_tps": 17.46,
+      "peak_device_mib": 11416,
+      "peak_growth_mib": 8341,
+      "expert_cache_mib": 2852
+    },
+    {
+      "keys": "q8_0",
+      "values": "q8_0",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0,
+      "microbatch": 16,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        33.08,
+        31.69
+      ],
+      "decode_tps": [
+        19.81,
+        19.67
+      ],
+      "decode_median_tps": 19.74,
+      "peak_device_mib": 11266,
+      "peak_growth_mib": 8191
+    },
+    {
+      "keys": "q8_0",
+      "values": "q8_0",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0,
+      "microbatch": 32,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        31.52,
+        30.36
+      ],
+      "decode_tps": [
+        18.55,
+        18.89
+      ],
+      "decode_median_tps": 18.72,
+      "peak_device_mib": 10908,
+      "peak_growth_mib": 7833
+    },
+    {
+      "keys": "q8_0",
+      "values": "q8_0",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0,
+      "microbatch": 64,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        29.46,
+        29.26
+      ],
+      "decode_tps": [
+        17.57,
+        17.73
+      ],
+      "decode_median_tps": 17.65,
+      "peak_device_mib": 11180,
+      "peak_growth_mib": 8105
+    },
+    {
+      "keys": "q8_0",
+      "values": "f16",
+      "mode": "static",
+      "gpu_layers": 99,
+      "cpu_miss_share": 0.0,
+      "microbatch": 16,
+      "cpu_threads": 8,
+      "device_ceiling_gb": 14,
+      "prompt_tokens": 12,
+      "decode_tokens": 48,
+      "trials": 2,
+      "prompt_tps": [
+        29.27,
+        28.87
+      ],
+      "decode_tps": [
+        17.78,
+        17.75
+      ],
+      "decode_median_tps": 17.76,
+      "peak_device_mib": 10956,
+      "peak_growth_mib": 7888
+    }
+  ],
+  "attention_layout": {
+    "scratch_mib": [
+      {
+        "microbatch": 16,
+        "before": 408,
+        "after": 312
+      },
+      {
+        "microbatch": 32,
+        "before": 816,
+        "after": 624
+      },
+      {
+        "microbatch": 64,
+        "before": 1633,
+        "after": 1249
+      }
+    ],
+    "test": "Same forced all-host expert placement, FP16 KV, 8 threads, microbatch 16. Cold 1,408-token prompt then cached 11-token append.",
+    "parity": {
+      "cold": {
+        "matched_ids": 1,
+        "total": 1,
+        "max_abs_logprob_diff": 0.0,
+        "baseline_timings": {
+          "cache_n": 0,
+          "prompt_n": 1408,
+          "prompt_ms": 34313.93,
+          "prompt_per_token_ms": 24.370688920454544,
+          "prompt_per_second": 41.03289830106898,
+          "predicted_n": 1,
+          "predicted_ms": 0.001,
+          "predicted_per_token_ms": 0.0,
+          "predicted_per_second": 0.0
+        },
+        "candidate_timings": {
+          "cache_n": 0,
+          "prompt_n": 1408,
+          "prompt_ms": 34168.838,
+          "prompt_per_token_ms": 24.267640625000002,
+          "prompt_per_second": 41.207137333730806,
+          "predicted_n": 1,
+          "predicted_ms": 0.001,
+          "predicted_per_token_ms": 0.0,
+          "predicted_per_second": 0.0
+        }
+      },
+      "append": {
+        "matched_ids": 16,
+        "total": 16,
+        "max_abs_logprob_diff": 0.0,
+        "baseline_timings": {
+          "cache_n": 1408,
+          "prompt_n": 11,
+          "prompt_ms": 691.685,
+          "prompt_per_token_ms": 62.88045454545454,
+          "prompt_per_second": 15.903192927416384,
+          "predicted_n": 16,
+          "predicted_ms": 1058.944,
+          "predicted_per_token_ms": 70.59626666666666,
+          "predicted_per_second": 14.165054998186873
+        },
+        "candidate_timings": {
+          "cache_n": 1408,
+          "prompt_n": 11,
+          "prompt_ms": 683.716,
+          "prompt_per_token_ms": 62.156,
+          "prompt_per_second": 16.08855138683313,
+          "predicted_n": 16,
+          "predicted_ms": 1076.794,
+          "predicted_per_token_ms": 71.78626666666668,
+          "predicted_per_second": 13.930241067465085
+        }
+      }
+    }
+  },
+  "hosted_retrieval": [
+    {
+      "passed": true,
+      "context": 131072,
+      "seed": 959,
+      "depth": 0.1,
+      "rows": 1278,
+      "requested_input_tokens": 17000,
+      "usage": {
+        "completion_tokens": 6,
+        "prompt_tokens": 17000,
+        "total_tokens": 17006,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "expected": "73729704",
+      "answer": "73729704",
+      "raw_reply": "73729704.",
+      "assistant_prefix": "The shelf label for Cobalt Pier is ",
+      "finish_reason": "stop",
+      "stream_done": true,
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 17000,
+        "prompt_ms": 239730.09,
+        "prompt_per_token_ms": 14.10177,
+        "prompt_per_second": 70.91308396038228,
+        "predicted_n": 6,
+        "predicted_ms": 383.113,
+        "predicted_per_token_ms": 76.6226,
+        "predicted_per_second": 13.05097973704886
+      },
+      "first_token_s": 239.7819516249874,
+      "elapsed_s": 240.166,
+      "runtime": {
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "ubatch": 32,
+        "gpu_layers": 49,
+        "device_limit_mib": 13351,
+        "device_peak_mib": 11473,
+        "growth_limit_mib": 10028,
+        "growth_peak_mib": 8150
+      }
+    },
+    {
+      "passed": true,
+      "context": 131072,
+      "seed": 23591,
+      "depth": 0.1,
+      "rows": 9373,
+      "requested_input_tokens": 131008,
+      "usage": {
+        "completion_tokens": 6,
+        "prompt_tokens": 131008,
+        "total_tokens": 131014,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "expected": "32664520",
+      "answer": "32664520",
+      "raw_reply": "32664520.",
+      "assistant_prefix": "The shelf label for Cobalt Pier is ",
+      "finish_reason": "stop",
+      "stream_done": true,
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 131008,
+        "prompt_ms": 1985295.563,
+        "prompt_per_token_ms": 15.154002526563264,
+        "prompt_per_second": 65.98916677274616,
+        "predicted_n": 6,
+        "predicted_ms": 424.107,
+        "predicted_per_token_ms": 84.82140000000001,
+        "predicted_per_second": 11.789477655402997
+      },
+      "first_token_s": 1985.8716924239998,
+      "elapsed_s": 1986.297,
+      "runtime": {
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "ubatch": 32,
+        "gpu_layers": 49,
+        "device_limit_mib": 13351,
+        "device_peak_mib": 11473,
+        "growth_limit_mib": 10028,
+        "growth_peak_mib": 8150
+      }
+    }
+  ],
+  "initial_zero_reasoning_budget_probe": {
+    "passed": false,
+    "requested_input_tokens": 17000,
+    "usage": {
+      "completion_tokens": 64,
+      "prompt_tokens": 17000,
+      "total_tokens": 17064,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "answer": "",
+    "finish_reason": "length",
+    "stream_done": true
+  },
+  "post_retrieval_verification": {
+    "ollama_smoke": true,
+    "pi_file_tool": true,
+    "codex_file_tool": true,
+    "systemd_restarts": 0
+  }
+}

@@ -1,0 +1,1926 @@
+{
+  "hardware": "RTX 5070 Ti (SM120), Ryzen 9 9950X3D, WSL2, shared desktop",
+  "context": 131072,
+  "kv": "FP16 keys and values on CUDA0",
+  "method": "Serial, single llama-server process, 1536 token microbatch, greedy code completions using scripts/bench-code-context (256 output tokens unless the row records another length) and cold prompts. Rates are measured per request. Actual cache capacity can differ with available desktop headroom. Device peaks include the desktop and earlier requests within that model worker.",
+  "trials": {
+    "upload-original": {
+      "code": [
+        {
+          "file": "upload-original-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24092.528,
+            "prompt_per_token_ms": 1.1763929687499999,
+            "prompt_per_second": 850.0560837783399,
+            "predicted_n": 256,
+            "predicted_ms": 9695.537,
+            "predicted_per_token_ms": 38.021713725490194,
+            "predicted_per_second": 26.300760855226482
+          },
+          "memory_mib": {
+            "device_peak_mib": 12447,
+            "growth_peak_mib": 9947,
+            "backend_peak_rss_mib": 16620,
+            "expert_cache_mib": 2180,
+            "expert_cache_allocated_mib": 3829.62,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 779,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "resident_slot_capacity": 779
+        },
+        {
+          "file": "upload-original-repeat-2-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 23351.031,
+            "prompt_per_token_ms": 1.140187060546875,
+            "prompt_per_second": 877.0490690539532,
+            "predicted_n": 256,
+            "predicted_ms": 9748.859,
+            "predicted_per_token_ms": 38.23081960784314,
+            "predicted_per_second": 26.156907182676452
+          },
+          "memory_mib": {
+            "device_peak_mib": 12838,
+            "growth_peak_mib": 10338,
+            "backend_peak_rss_mib": 16695,
+            "expert_cache_mib": 2180,
+            "expert_cache_allocated_mib": 3829.62,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 779,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "resident_slot_capacity": 779
+        }
+      ],
+      "checkpoint": "UD-Q4_K_XL"
+    },
+    "upload-batched": {
+      "code": [
+        {
+          "file": "upload-batched-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24167.134,
+            "prompt_per_token_ms": 1.1800358398437498,
+            "prompt_per_second": 847.431888282657,
+            "predicted_n": 256,
+            "predicted_ms": 9338.609,
+            "predicted_per_token_ms": 36.62199607843137,
+            "predicted_per_second": 27.30599385840011
+          },
+          "memory_mib": {
+            "device_peak_mib": 13389,
+            "growth_peak_mib": 10623,
+            "backend_peak_rss_mib": 16620,
+            "expert_cache_mib": 2180,
+            "expert_cache_allocated_mib": 3829.62,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 779,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "resident_slot_capacity": 779
+        },
+        {
+          "file": "upload-batched-repeat-2-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24439.661,
+            "prompt_per_token_ms": 1.193342822265625,
+            "prompt_per_second": 837.9821635005494,
+            "predicted_n": 256,
+            "predicted_ms": 9370.305,
+            "predicted_per_token_ms": 36.74629411764706,
+            "predicted_per_second": 27.213628585195465
+          },
+          "memory_mib": {
+            "device_peak_mib": 13389,
+            "growth_peak_mib": 10623,
+            "backend_peak_rss_mib": 16695,
+            "expert_cache_mib": 2180,
+            "expert_cache_allocated_mib": 3829.62,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 779,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "resident_slot_capacity": 779
+        }
+      ],
+      "checkpoint": "UD-Q4_K_XL"
+    },
+    "upload-defer": {
+      "code": [
+        {
+          "file": "upload-defer-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24348.808,
+            "prompt_per_token_ms": 1.188906640625,
+            "prompt_per_second": 841.1089364210354,
+            "predicted_n": 256,
+            "predicted_ms": 9187.509,
+            "predicted_per_token_ms": 36.02944705882353,
+            "predicted_per_second": 27.75507485217157
+          },
+          "memory_mib": {
+            "device_peak_mib": 13355,
+            "growth_peak_mib": 10854,
+            "backend_peak_rss_mib": 16620,
+            "expert_cache_mib": 2180,
+            "expert_cache_allocated_mib": 3829.62,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 779,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "resident_slot_capacity": 779
+        },
+        {
+          "file": "upload-defer-repeat-2-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 23819.93,
+            "prompt_per_token_ms": 1.16308251953125,
+            "prompt_per_second": 859.7842227076234,
+            "predicted_n": 256,
+            "predicted_ms": 9196.023,
+            "predicted_per_token_ms": 36.06283529411765,
+            "predicted_per_second": 27.7293782323076
+          },
+          "memory_mib": {
+            "device_peak_mib": 13355,
+            "growth_peak_mib": 10854,
+            "backend_peak_rss_mib": 16695,
+            "expert_cache_mib": 2180,
+            "expert_cache_allocated_mib": 3829.62,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 779,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 650
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 129
+            }
+          ],
+          "resident_slot_capacity": 779
+        }
+      ],
+      "checkpoint": "UD-Q4_K_XL"
+    },
+    "transfer-combined": {
+      "code": [
+        {
+          "file": "transfer-combined-code-130560.json",
+          "input_tokens": 130560,
+          "prompt_sha256": "adaa1977f576ec8949b4e93aa3fb174e1f4ce9f48254b9a9fd90e0e5a9359545",
+          "output_sha256": "ced28c673c6aa18df2409a8930634db287a430fbfc82dfdb704e84cba8368fe3",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 130560,
+            "prompt_ms": 192790.927,
+            "prompt_per_token_ms": 1.4766461933210784,
+            "prompt_per_second": 677.2102921627635,
+            "predicted_n": 256,
+            "predicted_ms": 10984.137,
+            "predicted_per_token_ms": 43.07504705882353,
+            "predicted_per_second": 23.21529675021351
+          },
+          "memory_mib": {
+            "device_peak_mib": 13251,
+            "growth_peak_mib": 10345,
+            "backend_peak_rss_mib": 16749,
+            "expert_cache_mib": 2121,
+            "expert_cache_allocated_mib": 3770.3,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11270
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 766,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 638
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 638
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "resident_slot_capacity": 766
+        },
+        {
+          "file": "transfer-combined-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 23632.675,
+            "prompt_per_token_ms": 1.153939208984375,
+            "prompt_per_second": 866.596777554805,
+            "predicted_n": 256,
+            "predicted_ms": 8883.67,
+            "predicted_per_token_ms": 34.83792156862745,
+            "predicted_per_second": 28.704353043280534
+          },
+          "memory_mib": {
+            "device_peak_mib": 12641,
+            "growth_peak_mib": 9735,
+            "backend_peak_rss_mib": 16619,
+            "expert_cache_mib": 2121,
+            "expert_cache_allocated_mib": 3770.3,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11270
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 766,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 638
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 638
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "resident_slot_capacity": 766
+        },
+        {
+          "file": "transfer-combined-repeat-2-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 22889.513,
+            "prompt_per_token_ms": 1.1176520019531249,
+            "prompt_per_second": 894.7328848805128,
+            "predicted_n": 256,
+            "predicted_ms": 9250.674,
+            "predicted_per_token_ms": 36.277152941176475,
+            "predicted_per_second": 27.565559006835606
+          },
+          "memory_mib": {
+            "device_peak_mib": 13212,
+            "growth_peak_mib": 10306,
+            "backend_peak_rss_mib": 16695,
+            "expert_cache_mib": 2121,
+            "expert_cache_allocated_mib": 3770.3,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11270
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 766,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 638
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 638
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "resident_slot_capacity": 766
+        }
+      ],
+      "checkpoint": "UD-Q4_K_XL"
+    },
+    "ctrl-full": {
+      "code": [
+        {
+          "file": "ctrl-full-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24067.468,
+            "prompt_per_token_ms": 1.1751693359375,
+            "prompt_per_second": 850.9411958083832,
+            "predicted_n": 256,
+            "predicted_ms": 9356.139,
+            "predicted_per_token_ms": 36.69074117647059,
+            "predicted_per_second": 27.254832361939044
+          },
+          "memory_mib": {
+            "device_peak_mib": 13310,
+            "growth_peak_mib": 10589,
+            "backend_peak_rss_mib": 16724,
+            "expert_cache_mib": 1961,
+            "expert_cache_allocated_mib": 3612.25,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11126
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 729,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 601
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 601
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "resident_slot_capacity": 729
+        },
+        {
+          "file": "ctrl-full-repeat-2-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 22842.757,
+            "prompt_per_token_ms": 1.115368994140625,
+            "prompt_per_second": 896.5642807477224,
+            "predicted_n": 256,
+            "predicted_ms": 9991.453,
+            "predicted_per_token_ms": 39.18216862745098,
+            "predicted_per_second": 25.521813493993317
+          },
+          "memory_mib": {
+            "device_peak_mib": 13310,
+            "growth_peak_mib": 10589,
+            "backend_peak_rss_mib": 16731,
+            "expert_cache_mib": 1961,
+            "expert_cache_allocated_mib": 3612.25,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11126
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 729,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 601
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 601
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "resident_slot_capacity": 729
+        }
+      ],
+      "decode_quality": {
+        "prompts": 4,
+        "reference_emissions": 128,
+        "token_sequences_identical": true,
+        "top8_probability_arrays_identical": true
+      },
+      "checkpoint": "UD-Q4_K_XL"
+    },
+    "elastic-first": {
+      "code": [
+        {
+          "file": "elastic-first-code-130560.json",
+          "input_tokens": 130560,
+          "prompt_sha256": "adaa1977f576ec8949b4e93aa3fb174e1f4ce9f48254b9a9fd90e0e5a9359545",
+          "output_sha256": "ced28c673c6aa18df2409a8930634db287a430fbfc82dfdb704e84cba8368fe3",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 130560,
+            "prompt_ms": 208917.99,
+            "prompt_per_token_ms": 1.6001684283088236,
+            "prompt_per_second": 624.9342146169413,
+            "predicted_n": 256,
+            "predicted_ms": 11095.016,
+            "predicted_per_token_ms": 43.50986666666667,
+            "predicted_per_second": 22.983292678442286
+          },
+          "memory_mib": {
+            "device_peak_mib": 13125,
+            "growth_peak_mib": 10263,
+            "backend_peak_rss_mib": 16787,
+            "expert_cache_mib": 2110,
+            "expert_cache_allocated_mib": 3761.76,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11275
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 764,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 636
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 636
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "resident_slot_capacity": 764,
+          "global_kv_committed_mib": 4096
+        },
+        {
+          "file": "elastic-first-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 26450.372,
+            "prompt_per_token_ms": 1.2915220703124999,
+            "prompt_per_second": 774.280225624048,
+            "predicted_n": 256,
+            "predicted_ms": 8511.973,
+            "predicted_per_token_ms": 33.38028627450981,
+            "predicted_per_second": 29.957801792839334
+          },
+          "memory_mib": {
+            "device_peak_mib": 12961,
+            "growth_peak_mib": 10099,
+            "backend_peak_rss_mib": 16724,
+            "expert_cache_mib": 2110,
+            "expert_cache_allocated_mib": 6927.87,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11275
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 1411,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 1177
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 234
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 1177
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 234
+            }
+          ],
+          "resident_slot_capacity": 1411,
+          "global_kv_committed_mib": 672
+        },
+        {
+          "file": "elastic-first-repeat-2-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 26158.228,
+            "prompt_per_token_ms": 1.2772572265625,
+            "prompt_per_second": 782.927650909687,
+            "predicted_n": 256,
+            "predicted_ms": 8685.574,
+            "predicted_per_token_ms": 34.06107450980392,
+            "predicted_per_second": 29.35902681849236
+          },
+          "memory_mib": {
+            "device_peak_mib": 13125,
+            "growth_peak_mib": 10263,
+            "backend_peak_rss_mib": 16731,
+            "expert_cache_mib": 2110,
+            "expert_cache_allocated_mib": 6927.87,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11275
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 1411,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 1177
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 234
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 1177
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 234
+            }
+          ],
+          "resident_slot_capacity": 1411,
+          "global_kv_committed_mib": 672
+        }
+      ],
+      "decode_quality": {
+        "prompts": 4,
+        "reference_emissions": 128,
+        "token_sequences_identical": true,
+        "top8_probability_arrays_identical": true
+      },
+      "checkpoint": "UD-Q4_K_XL"
+    },
+    "routed-gpu": {
+      "code": [
+        {
+          "file": "routed-gpu-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24608.811,
+            "prompt_per_token_ms": 1.201602099609375,
+            "prompt_per_second": 832.2222475519033,
+            "predicted_n": 256,
+            "predicted_ms": 8698.2,
+            "predicted_per_token_ms": 34.110588235294124,
+            "predicted_per_second": 29.316410291784504
+          },
+          "memory_mib": {
+            "device_peak_mib": 12748,
+            "growth_peak_mib": 9650,
+            "backend_peak_rss_mib": 16720,
+            "expert_cache_mib": 1799,
+            "expert_cache_allocated_mib": 3450.2,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 10964
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 563
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "resident_slot_capacity": 691
+        },
+        {
+          "file": "routed-gpu-repeat-2-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 23072.979,
+            "prompt_per_token_ms": 1.126610302734375,
+            "prompt_per_second": 887.6183695222018,
+            "predicted_n": 256,
+            "predicted_ms": 8665.475,
+            "predicted_per_token_ms": 33.982254901960786,
+            "predicted_per_second": 29.427123152510394
+          },
+          "memory_mib": {
+            "device_peak_mib": 12748,
+            "growth_peak_mib": 9650,
+            "backend_peak_rss_mib": 16728,
+            "expert_cache_mib": 1799,
+            "expert_cache_allocated_mib": 3450.2,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 10964
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 563
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 128
+            }
+          ],
+          "resident_slot_capacity": 691
+        }
+      ],
+      "decode_quality": {
+        "prompts": 4,
+        "reference_emissions": 128,
+        "token_sequences_identical": true,
+        "top8_probability_arrays_identical": true
+      },
+      "checkpoint": "UD-Q4_K_XL"
+    },
+    "candidate-all": {
+      "code": [
+        {
+          "file": "candidate-all-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24600.998,
+            "prompt_per_token_ms": 1.20122060546875,
+            "prompt_per_second": 832.4865519683387,
+            "predicted_n": 256,
+            "predicted_ms": 7214.578,
+            "predicted_per_token_ms": 28.292462745098042,
+            "predicted_per_second": 35.34510265188068
+          },
+          "memory_mib": {
+            "device_peak_mib": 12757,
+            "growth_peak_mib": 10074,
+            "backend_peak_rss_mib": 16727,
+            "expert_cache_mib": 2180,
+            "expert_cache_allocated_mib": 6898.7,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "global_kv_committed_mib": 768,
+          "global_kv_reserved_mib": 4096,
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 1172
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 233
+            }
+          ],
+          "resident_slot_capacity": 1405
+        }
+      ],
+      "decode_quality": {
+        "prompts": 4,
+        "reference_emissions": 128,
+        "token_sequences_identical": true,
+        "top8_probability_arrays_identical": true
+      },
+      "checkpoint": "UD-Q4_K_XL"
+    },
+    "q4-stock": {
+      "code": [
+        {
+          "file": "q4-stock-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 23751.463,
+            "prompt_per_token_ms": 1.159739404296875,
+            "prompt_per_second": 862.2626740929602,
+            "predicted_n": 256,
+            "predicted_ms": 9047.07,
+            "predicted_per_token_ms": 35.47870588235294,
+            "predicted_per_second": 28.18592096667761
+          },
+          "memory_mib": {
+            "device_peak_mib": 13037,
+            "growth_peak_mib": 10458,
+            "backend_peak_rss_mib": 15765,
+            "expert_cache_mib": 2295,
+            "expert_cache_allocated_mib": 3944.95,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 858,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 716
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 142
+            }
+          ],
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 716
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 142
+            }
+          ],
+          "resident_slot_capacity": 858
+        }
+      ],
+      "decode_quality": {
+        "prompts": 4,
+        "reference_emissions": 128,
+        "token_sequences_identical": true,
+        "top8_probability_arrays_identical": true
+      },
+      "checkpoint": "UD-Q4_K_M"
+    },
+    "q4-all": {
+      "code": [
+        {
+          "file": "q4-all-code-130560.json",
+          "input_tokens": 130560,
+          "prompt_sha256": "adaa1977f576ec8949b4e93aa3fb174e1f4ce9f48254b9a9fd90e0e5a9359545",
+          "output_sha256": "3418d310bfb3c43fee683676e6d1aa532d08295dc163e29b11a9133dba18ffa1",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 130560,
+            "prompt_ms": 201323.304,
+            "prompt_per_token_ms": 1.5419983455882353,
+            "prompt_per_second": 648.5091263950249,
+            "predicted_n": 256,
+            "predicted_ms": 9778.567,
+            "predicted_per_token_ms": 38.34732156862745,
+            "predicted_per_second": 26.077440590221453
+          },
+          "memory_mib": {
+            "device_peak_mib": 13290,
+            "growth_peak_mib": 10602,
+            "backend_peak_rss_mib": 15818,
+            "expert_cache_mib": 2295,
+            "expert_cache_allocated_mib": 3945.2,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "global_kv_committed_mib": 4096,
+          "global_kv_reserved_mib": 4096,
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 716
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 142
+            }
+          ],
+          "resident_slot_capacity": 858
+        },
+        {
+          "file": "q4-all-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 25396.071,
+            "prompt_per_token_ms": 1.240042529296875,
+            "prompt_per_second": 806.4239543195481,
+            "predicted_n": 256,
+            "predicted_ms": 7067.711,
+            "predicted_per_token_ms": 27.7165137254902,
+            "predicted_per_second": 36.07957371205472
+          },
+          "memory_mib": {
+            "device_peak_mib": 12832,
+            "growth_peak_mib": 10144,
+            "backend_peak_rss_mib": 15770,
+            "expert_cache_mib": 2295,
+            "expert_cache_allocated_mib": 7019.8,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "global_kv_committed_mib": 768,
+          "global_kv_reserved_mib": 4096,
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 1274
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 254
+            }
+          ],
+          "resident_slot_capacity": 1528
+        },
+        {
+          "file": "q4-all-repeat-2-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24180.434,
+            "prompt_per_token_ms": 1.18068525390625,
+            "prompt_per_second": 846.9657740634432,
+            "predicted_n": 256,
+            "predicted_ms": 6870.469,
+            "predicted_per_token_ms": 26.94301568627451,
+            "predicted_per_second": 37.115370144308926
+          },
+          "memory_mib": {
+            "device_peak_mib": 13290,
+            "growth_peak_mib": 10602,
+            "backend_peak_rss_mib": 15826,
+            "expert_cache_mib": 2295,
+            "expert_cache_allocated_mib": 7019.8,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "global_kv_committed_mib": 768,
+          "global_kv_reserved_mib": 4096,
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_decode_headroom_limit_mib": 256,
+          "expert_pools": [
+            {
+              "physical_layers": 20,
+              "down_weight_type": "nvfp4",
+              "slots": 1274
+            },
+            {
+              "physical_layers": 4,
+              "down_weight_type": "q8_0",
+              "slots": 254
+            }
+          ],
+          "resident_slot_capacity": 1528
+        }
+      ],
+      "decode_quality": {
+        "prompts": 4,
+        "reference_emissions": 128,
+        "token_sequences_identical": true,
+        "top8_probability_arrays_identical": true
+      },
+      "checkpoint": "UD-Q4_K_M"
+    },
+    "served-production": {
+      "code": [
+        {
+          "file": "served-production-code-130560.json",
+          "input_tokens": 130560,
+          "prompt_sha256": "adaa1977f576ec8949b4e93aa3fb174e1f4ce9f48254b9a9fd90e0e5a9359545",
+          "output_sha256": "3418d310bfb3c43fee683676e6d1aa532d08295dc163e29b11a9133dba18ffa1",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 130560,
+            "prompt_ms": 200625.699,
+            "prompt_per_token_ms": 1.5366551700367646,
+            "prompt_per_second": 650.7640878051221,
+            "predicted_n": 256,
+            "predicted_ms": 9195.109,
+            "predicted_per_token_ms": 36.05925098039216,
+            "predicted_per_second": 27.732134551096674
+          },
+          "memory_mib": {
+            "device_peak_mib": 13296,
+            "growth_peak_mib": 10791,
+            "backend_peak_rss_mib": 15713,
+            "expert_cache_mib": 2295,
+            "expert_cache_allocated_mib": 4459.712333374024,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "global_kv_committed_mib": 4096,
+          "global_kv_reserved_mib": 4096,
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 970,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 809
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 161
+            }
+          ],
+          "device_routes_session": {
+            "visits": 10752,
+            "all_hit_visits": 4144,
+            "hits": 72714,
+            "misses": 13302,
+            "miss_bytes": 61560041472
+          },
+          "device_routes_active": true,
+          "expert_cache_decode_headroom_limit_mib": 768
+        },
+        {
+          "file": "served-production-code-20480.json",
+          "input_tokens": 20480,
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "fbf337d3224f308ad4bb843ab2aaba714183796759ae2796290213050c51e0a0",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24560.775,
+            "prompt_per_token_ms": 1.1992565917968752,
+            "prompt_per_second": 833.849909052137,
+            "predicted_n": 768,
+            "predicted_ms": 19699.393,
+            "predicted_per_token_ms": 25.683693611473274,
+            "predicted_per_second": 38.93520983108464
+          },
+          "memory_mib": {
+            "device_peak_mib": 13938,
+            "growth_peak_mib": 11433,
+            "backend_peak_rss_mib": 15884,
+            "expert_cache_mib": 2295,
+            "expert_cache_allocated_mib": 7528.062333374023,
+            "device_limit_mib": 14305,
+            "growth_limit_mib": 11444
+          },
+          "global_kv_committed_mib": 768,
+          "global_kv_reserved_mib": 4096,
+          "expert_cache_phase": "decode",
+          "expert_compute": "CUDA0",
+          "expert_cache_slots": 1639,
+          "expert_cache_pools": [
+            {
+              "layers": 20,
+              "weight_type": "nvfp4",
+              "slots": 1367
+            },
+            {
+              "layers": 4,
+              "weight_type": "q8_0",
+              "slots": 272
+            }
+          ],
+          "device_routes_session": {
+            "visits": 47040,
+            "all_hit_visits": 27770,
+            "hits": 343749,
+            "misses": 32571,
+            "miss_bytes": 153339734016
+          },
+          "device_routes_active": true,
+          "expert_cache_decode_headroom_limit_mib": 768
+        }
+      ],
+      "decode_quality": {
+        "prompts": 4,
+        "reference_emissions": 128,
+        "token_sequences_identical": true,
+        "top8_probability_arrays_identical": true
+      },
+      "checkpoint": "UD-Q4_K_M"
+    }
+  },
+  "cuda_activity": {
+    "scope": "Original runtime, normal CUDA graphs, actual steady-state process_ubatch on generated steps 22 and 23 of an independent short code prompt. CUPTI kernel and memcpy activity collection was enabled on these two steps only. Profiling did not overlap timed comparisons.",
+    "positions": [
+      1045,
+      1046
+    ],
+    "controller_identification": "Shape-specific 4608-to-64 FP32 matvec anchor plus its validated neighboring concat, both 64-to-2304 matvecs, two tanh operations and four gated arithmetic ops. Includes adjacent input copies and RMSNorm when contiguous. Spans and busy time are unions on the GPU timeline. Precomputed inputs and other CPU work are excluded.",
+    "steps": [
+      {
+        "position": 1045,
+        "window_ms": 41.502,
+        "kernels": 7374,
+        "copies": 355,
+        "controller_groups": 96,
+        "matched_controller_kernels": 1316,
+        "controller_device_span_ms": 1.856,
+        "controller_device_busy_ms": 1.763,
+        "qkv_device_span_ms": 1.414,
+        "between_512byte_h2d_or_before_slot_lookup_idle_ms": 11.44
+      },
+      {
+        "position": 1046,
+        "window_ms": 39.021,
+        "kernels": 7374,
+        "copies": 337,
+        "controller_groups": 96,
+        "matched_controller_kernels": 1316,
+        "controller_device_span_ms": 1.855,
+        "controller_device_busy_ms": 1.761,
+        "qkv_device_span_ms": 1.411,
+        "between_512byte_h2d_or_before_slot_lookup_idle_ms": 11.45
+      }
+    ]
+  },
+  "mapped_copy_microbenchmark": {
+    "method": "Q4 XL gate/up and down bank strides, GPU copying registered host memory versus batched DMA on the same device; byte-checked, including undisturbed slots. Synthetic throughput does not measure end-to-end decode.",
+    "rows": [
+      {
+        "group": "NVFP4",
+        "misses": 0,
+        "method": "DMA-batch",
+        "microseconds": 0.298,
+        "GB_per_second": 0.0,
+        "exact": true
+      },
+      {
+        "group": "NVFP4",
+        "misses": 0,
+        "method": "SM-mapped",
+        "microseconds": 7.474,
+        "GB_per_second": 0.0,
+        "exact": true
+      },
+      {
+        "group": "NVFP4",
+        "misses": 1,
+        "method": "DMA-batch",
+        "microseconds": 79.31,
+        "GB_per_second": 56.474,
+        "exact": true
+      },
+      {
+        "group": "NVFP4",
+        "misses": 1,
+        "method": "SM-mapped",
+        "microseconds": 88.134,
+        "GB_per_second": 50.82,
+        "exact": true
+      },
+      {
+        "group": "NVFP4",
+        "misses": 2,
+        "method": "DMA-batch",
+        "microseconds": 176.394,
+        "GB_per_second": 50.784,
+        "exact": true
+      },
+      {
+        "group": "NVFP4",
+        "misses": 2,
+        "method": "SM-mapped",
+        "microseconds": 173.302,
+        "GB_per_second": 51.69,
+        "exact": true
+      },
+      {
+        "group": "NVFP4",
+        "misses": 4,
+        "method": "DMA-batch",
+        "microseconds": 312.622,
+        "GB_per_second": 57.309,
+        "exact": true
+      },
+      {
+        "group": "NVFP4",
+        "misses": 4,
+        "method": "SM-mapped",
+        "microseconds": 338.414,
+        "GB_per_second": 52.941,
+        "exact": true
+      },
+      {
+        "group": "NVFP4",
+        "misses": 8,
+        "method": "DMA-batch",
+        "microseconds": 622.418,
+        "GB_per_second": 57.569,
+        "exact": true
+      },
+      {
+        "group": "NVFP4",
+        "misses": 8,
+        "method": "SM-mapped",
+        "microseconds": 673.758,
+        "GB_per_second": 53.182,
+        "exact": true
+      },
+      {
+        "group": "Q8_0",
+        "misses": 0,
+        "method": "DMA-batch",
+        "microseconds": 1.42,
+        "GB_per_second": 0.0,
+        "exact": true
+      },
+      {
+        "group": "Q8_0",
+        "misses": 0,
+        "method": "SM-mapped",
+        "microseconds": 8.118,
+        "GB_per_second": 0.0,
+        "exact": true
+      },
+      {
+        "group": "Q8_0",
+        "misses": 1,
+        "method": "DMA-batch",
+        "microseconds": 176.492,
+        "GB_per_second": 47.936,
+        "exact": true
+      },
+      {
+        "group": "Q8_0",
+        "misses": 1,
+        "method": "SM-mapped",
+        "microseconds": 163.556,
+        "GB_per_second": 51.727,
+        "exact": true
+      },
+      {
+        "group": "Q8_0",
+        "misses": 2,
+        "method": "DMA-batch",
+        "microseconds": 296.494,
+        "GB_per_second": 57.069,
+        "exact": true
+      },
+      {
+        "group": "Q8_0",
+        "misses": 2,
+        "method": "SM-mapped",
+        "microseconds": 324.364,
+        "GB_per_second": 52.165,
+        "exact": true
+      },
+      {
+        "group": "Q8_0",
+        "misses": 4,
+        "method": "DMA-batch",
+        "microseconds": 588.618,
+        "GB_per_second": 57.493,
+        "exact": true
+      },
+      {
+        "group": "Q8_0",
+        "misses": 4,
+        "method": "SM-mapped",
+        "microseconds": 646.122,
+        "GB_per_second": 52.376,
+        "exact": true
+      },
+      {
+        "group": "Q8_0",
+        "misses": 8,
+        "method": "DMA-batch",
+        "microseconds": 1204.91,
+        "GB_per_second": 56.172,
+        "exact": true
+      },
+      {
+        "group": "Q8_0",
+        "misses": 8,
+        "method": "SM-mapped",
+        "microseconds": 1379.29,
+        "GB_per_second": 49.07,
+        "exact": true
+      }
+    ]
+  },
+  "model_sha256": {
+    "UD-Q4_K_XL": "e64276656f072e9b2197a61723667cbdb71da66a716ffd966e572c21088f3cd3",
+    "UD-Q4_K_M": "78fcedcf93c5d1bfe83e225513b71392bb52259be0eaa5f8899c856a2e5834ae"
+  },
+  "quality_vs_reference": {
+    "candidate_vs_reference": {
+      "n": 48,
+      "reference_label": "reference",
+      "candidate_label": "q4-all",
+      "reference_accuracy": 0.6458333333333334,
+      "candidate_accuracy": 0.625,
+      "accuracy_delta_pp": -2.0833333333333335,
+      "accuracy_delta_95pct_conservative_pp": [
+        -15.851044891577304,
+        12.221142587728796
+      ],
+      "gains": 1,
+      "losses": 2,
+      "mcnemar_exact_p": 1,
+      "choice_changes": [
+        "math-01",
+        "math-03",
+        "math-06",
+        "code-02",
+        "code-09",
+        "reading-10"
+      ],
+      "reference_mean_gold_nll": 1.1815248434347128,
+      "candidate_mean_gold_nll": 1.0492888181894962,
+      "mean_gold_nll_delta_nats": -0.13223602524521672,
+      "mean_gold_nll_delta_95pct_bootstrap_nats": [
+        -0.2767471089578631,
+        -0.0012311189812878414
+      ],
+      "accuracy_by_domain": {
+        "math": {
+          "reference": 0.5833333333333334,
+          "candidate": 0.4166666666666667
+        },
+        "code": {
+          "reference": 0.5,
+          "candidate": 0.5833333333333334
+        },
+        "reading": {
+          "reference": 0.8333333333333334,
+          "candidate": 0.8333333333333334
+        },
+        "reasoning": {
+          "reference": 0.6666666666666666,
+          "candidate": 0.6666666666666666
+        }
+      }
+    },
+    "limitations": "Intervals use the 48 authored questions as independent observations. Scores apply to single-token forced choices on this fixed suite; they do not establish general model equivalence. Lower gold NLL is better."
+  },
+  "equal_budget_capacity": {
+    "method": "Allocator calculation for 7168 MiB of expert bank space with normalized fractions from the GGUF tensor byte strides and one guard slot per pool. Excludes separately charged router metadata.",
+    "UD-Q4_K_XL": {
+      "nvfp4_slots": 1216,
+      "tail_slots": 242,
+      "host_expert_mib": 15066
+    },
+    "UD-Q4_K_M": {
+      "nvfp4_slots": 1300,
+      "tail_slots": 259,
+      "host_expert_mib": 14094
+    }
+  },
+  "raw_fp32_check": {
+    "width": 2304,
+    "cases": 8,
+    "unequal_norm": 0,
+    "norm_elements": 110592,
+    "unequal_down": 0,
+    "down_elements": 1536,
+    "unequal_merge": 0,
+    "merge_elements": 55296,
+    "bitwise": true
+  },
+  "served_validation": {
+    "checkpoint": "UD-Q4_K_M",
+    "sha256": "78fcedcf93c5d1bfe83e225513b71392bb52259be0eaa5f8899c856a2e5834ae",
+    "slot": 131072,
+    "before_orderly_shutdown": {
+      "backend_peak_rss_mib": 15637,
+      "backend_rss_mib": 15609,
+      "host_available_mib": 13440,
+      "expert_compute": "CUDA0",
+      "host_global_kv": 0,
+      "host_output": false,
+      "load_mode": "dio",
+      "requested_load_mode": "dio",
+      "fast_relative_positions": true,
+      "packed_global_mask_requested": true,
+      "compact_attention_requested": "native",
+      "elastic_global_kv_requested": true,
+      "elastic_global_kv_mode": "auto",
+      "elastic_global_kv_active": true,
+      "controller_fusion_requested": "sm120-qkv",
+      "device_routes_requested": true,
+      "device_routes_state": "active",
+      "device_routes_active": true,
+      "cache_ram_mib": 0,
+      "ctx_checkpoints": 0,
+      "stage_global_kv": true,
+      "host_global_attention": {},
+      "expert_cache_mib": 2295,
+      "expert_cache_decode_extra_limit_mib": 6144,
+      "expert_cache_decode_headroom_limit_mib": 256,
+      "prompt_lookup": "none",
+      "lookup_match_tokens": 4,
+      "lookup_rollback_rows": 0,
+      "expert_cache_decode_min_tokens": 12,
+      "expert_cache_allocated_mib": 7748.282333374023,
+      "host_expert_weights_mib": 14094.0,
+      "expert_cache_slots": 1687,
+      "expert_cache_pools": [
+        {
+          "layers": 20,
+          "weight_type": "nvfp4",
+          "slots": 1407
+        },
+        {
+          "layers": 4,
+          "weight_type": "q8_0",
+          "slots": 280
+        }
+      ],
+      "expert_cache_phase": "decode",
+      "expert_cache_compute_scratch_mib": 2.0,
+      "controller_fusion_observed": "sm120-qkv",
+      "compact_decode_kernel_observed": "vector",
+      "global_kv_reserved_mib": 4096,
+      "global_kv_committed_mib": 32,
+      "global_kv_page_kib": 2048,
+      "global_kv_chunk_kib": 8192,
+      "global_kv_target_rows": 256,
+      "device_routes_metadata_bytes": 296048,
+      "device_routes_session": {
+        "visits": 1280,
+        "all_hit_visits": 678,
+        "hits": 8966,
+        "misses": 1274,
+        "miss_bytes": 5706215424
+      },
+      "cache_type_k": "f16",
+      "cache_type_v": "f16",
+      "batch": 1536,
+      "ubatch": 1536,
+      "gpu_layers": 49,
+      "device_limit_mib": 14305,
+      "device_peak_mib": 12268,
+      "growth_limit_mib": 11444,
+      "growth_peak_mib": 9760,
+      "reserve_mib": 1024
+    },
+    "teardown": {
+      "retired": true,
+      "driver_error": false,
+      "native_log": "inkling-0xvcmlms.log"
+    },
+    "check-device-routes": "passed",
+    "check-controller": "passed",
+    "vmm_extent_smoke": "passed",
+    "start": {
+      "backend_peak_rss_mib": 15401,
+      "backend_rss_mib": 15401,
+      "host_available_mib": 13640,
+      "expert_compute": "CUDA0",
+      "host_global_kv": 0,
+      "host_output": false,
+      "load_mode": "dio",
+      "requested_load_mode": "dio",
+      "fast_relative_positions": true,
+      "packed_global_mask_requested": true,
+      "compact_attention_requested": "native",
+      "elastic_global_kv_requested": true,
+      "elastic_global_kv_mode": "auto",
+      "elastic_global_kv_active": true,
+      "controller_fusion_requested": "sm120-qkv",
+      "device_routes_requested": true,
+      "device_routes_state": "pending",
+      "device_routes_active": false,
+      "cache_ram_mib": 0,
+      "ctx_checkpoints": 0,
+      "stage_global_kv": true,
+      "host_global_attention": {},
+      "expert_cache_mib": 2295,
+      "expert_cache_decode_extra_limit_mib": 6144,
+      "expert_cache_decode_headroom_limit_mib": 768,
+      "prompt_lookup": "none",
+      "lookup_match_tokens": 4,
+      "lookup_rollback_rows": 0,
+      "expert_cache_decode_min_tokens": 12,
+      "expert_cache_allocated_mib": 2290.94,
+      "host_expert_weights_mib": 14094.0,
+      "expert_cache_slots": 477,
+      "expert_cache_pools": [
+        {
+          "layers": 20,
+          "weight_type": "nvfp4",
+          "slots": 349
+        },
+        {
+          "layers": 4,
+          "weight_type": "q8_0",
+          "slots": 128
+        }
+      ],
+      "expert_cache_phase": "prefill",
+      "controller_fusion_observed": "sm120-qkv",
+      "compact_decode_kernel_observed": "vector",
+      "global_kv_reserved_mib": 4096,
+      "global_kv_committed_mib": 0,
+      "global_kv_page_kib": 2048,
+      "global_kv_chunk_kib": 8192,
+      "global_kv_target_rows": 0,
+      "cache_type_k": "f16",
+      "cache_type_v": "f16",
+      "batch": 1536,
+      "ubatch": 1536,
+      "gpu_layers": 49,
+      "device_limit_mib": 14305,
+      "device_peak_mib": 8324,
+      "growth_limit_mib": 11444,
+      "growth_peak_mib": 5819,
+      "reserve_mib": 1024
+    },
+    "retrieval": [
+      {
+        "passed": true,
+        "context": 131072,
+        "seed": 23591,
+        "depth": 0.1,
+        "rows": 9373,
+        "requested_input_tokens": 131008,
+        "usage": {
+          "completion_tokens": 6,
+          "prompt_tokens": 131008,
+          "total_tokens": 131014,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "expected": "32664520",
+        "answer": "32664520",
+        "raw_reply": "32664520.",
+        "assistant_prefix": "The shelf label for Cobalt Pier is ",
+        "finish_reason": "stop",
+        "stream_done": true,
+        "timings": {
+          "cache_n": 0,
+          "prompt_n": 131008,
+          "prompt_ms": 189842.171,
+          "prompt_per_token_ms": 1.449088383915486,
+          "prompt_per_second": 690.0890319042969,
+          "predicted_n": 6,
+          "predicted_ms": 312.777,
+          "predicted_per_token_ms": 62.5554,
+          "predicted_per_second": 15.985830160146046
+        },
+        "first_token_s": 189.97572638001293,
+        "elapsed_s": 190.291
+      },
+      {
+        "passed": true,
+        "context": 131072,
+        "seed": 23591,
+        "depth": 0.1,
+        "rows": 1525,
+        "requested_input_tokens": 20480,
+        "usage": {
+          "completion_tokens": 6,
+          "prompt_tokens": 20480,
+          "total_tokens": 20486,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "expected": "32664520",
+        "answer": "32664520",
+        "raw_reply": "32664520.",
+        "assistant_prefix": "The shelf label for Cobalt Pier is ",
+        "finish_reason": "stop",
+        "stream_done": true,
+        "timings": {
+          "cache_n": 0,
+          "prompt_n": 20480,
+          "prompt_ms": 24048.298,
+          "prompt_per_token_ms": 1.17423330078125,
+          "prompt_per_second": 851.6195200175913,
+          "predicted_n": 6,
+          "predicted_ms": 283.736,
+          "predicted_per_token_ms": 56.7472,
+          "predicted_per_second": 17.622014830687682
+        },
+        "first_token_s": 24.073919939022744,
+        "elapsed_s": 24.358
+      }
+    ],
+    "smoke-api": "passed",
+    "smoke-harnesses": "passed",
+    "exact_top8": true,
+    "end": {
+      "backend_peak_rss_mib": 15909,
+      "backend_rss_mib": 15857,
+      "host_available_mib": 13187,
+      "expert_compute": "CUDA0",
+      "host_global_kv": 0,
+      "host_output": false,
+      "load_mode": "dio",
+      "requested_load_mode": "dio",
+      "fast_relative_positions": true,
+      "packed_global_mask_requested": true,
+      "compact_attention_requested": "native",
+      "elastic_global_kv_requested": true,
+      "elastic_global_kv_mode": "auto",
+      "elastic_global_kv_active": true,
+      "controller_fusion_requested": "sm120-qkv",
+      "device_routes_requested": true,
+      "device_routes_state": "active",
+      "device_routes_active": true,
+      "cache_ram_mib": 0,
+      "ctx_checkpoints": 0,
+      "stage_global_kv": true,
+      "host_global_attention": {},
+      "expert_cache_mib": 2295,
+      "expert_cache_decode_extra_limit_mib": 6144,
+      "expert_cache_decode_headroom_limit_mib": 768,
+      "prompt_lookup": "none",
+      "lookup_match_tokens": 4,
+      "lookup_rollback_rows": 0,
+      "expert_cache_decode_min_tokens": 12,
+      "expert_cache_allocated_mib": 8262.762333374023,
+      "host_expert_weights_mib": 14094.0,
+      "expert_cache_slots": 1799,
+      "expert_cache_pools": [
+        {
+          "layers": 20,
+          "weight_type": "nvfp4",
+          "slots": 1500
+        },
+        {
+          "layers": 4,
+          "weight_type": "q8_0",
+          "slots": 299
+        }
+      ],
+      "expert_cache_phase": "decode",
+      "expert_cache_compute_scratch_mib": 2.0,
+      "compact_prefill_kernel_observed": "native",
+      "controller_fusion_observed": "sm120-qkv",
+      "compact_decode_kernel_observed": "vector",
+      "global_kv_reserved_mib": 4096,
+      "global_kv_committed_mib": 32,
+      "global_kv_page_kib": 2048,
+      "global_kv_chunk_kib": 8192,
+      "global_kv_target_rows": 256,
+      "device_routes_metadata_bytes": 296048,
+      "device_routes_session": {
+        "visits": 70832,
+        "all_hit_visits": 41535,
+        "hits": 513539,
+        "misses": 53117,
+        "miss_bytes": 251434285056
+      },
+      "cache_type_k": "f16",
+      "cache_type_v": "f16",
+      "batch": 1536,
+      "ubatch": 1536,
+      "gpu_layers": 49,
+      "device_limit_mib": 14305,
+      "device_peak_mib": 13938,
+      "growth_limit_mib": 11444,
+      "growth_peak_mib": 11433,
+      "reserve_mib": 1024
+    },
+    "worker_count": 1
+  },
+  "served_code_functional": {
+    "answer_sha256": "144c45aa072a5ed4d0c8000460fa58ab14190d1453aa12cfbc7e666440e9891b",
+    "passed": 1007,
+    "expected_exceptions": 204,
+    "seed": 4462,
+    "method": "Manually reviewed function tested against integer-set coverage on seven explicit cases and 1000 seeded interval lists."
+  },
+  "warm_code_turns": [
+    {
+      "input_length": 3918,
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 3918,
+        "prompt_ms": 4394.439,
+        "prompt_per_token_ms": 1.121602603369066,
+        "prompt_per_second": 891.5813827430532,
+        "predicted_n": 96,
+        "predicted_ms": 2717.23,
+        "predicted_per_token_ms": 28.60242105263158,
+        "predicted_per_second": 34.96207534879271
+      }
+    },
+    {
+      "input_length": 4025,
+      "timings": {
+        "cache_n": 4013,
+        "prompt_n": 12,
+        "prompt_ms": 396.588,
+        "prompt_per_token_ms": 33.049,
+        "prompt_per_second": 30.258101606705196,
+        "predicted_n": 96,
+        "predicted_ms": 2779.811,
+        "predicted_per_token_ms": 29.261168421052634,
+        "predicted_per_second": 34.17498527777608
+      }
+    },
+    {
+      "input_length": 4131,
+      "timings": {
+        "cache_n": 4120,
+        "prompt_n": 11,
+        "prompt_ms": 411.653,
+        "prompt_per_token_ms": 37.423,
+        "prompt_per_second": 26.72153488496379,
+        "predicted_n": 96,
+        "predicted_ms": 2757.593,
+        "predicted_per_token_ms": 29.027294736842105,
+        "predicted_per_second": 34.450334041317916
+      }
+    }
+  ]
+}

@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""Measure cold code-context prefill and a natural Python completion on the active local model."""
+import argparse
+import ast
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import sys
+from urllib.error import URLError
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from inkling import api
+
+FILES = ("src/llama-kv-cache.cpp", "src/llama-context.cpp", "ggml/src/ggml.c",
+         "ggml/src/ggml-backend.cpp", "src/llama-model.cpp", "tools/server/server-context.cpp")
+PREFIX = ("The following source files are excerpts from a C++ inference server under development. "
+          "A separate task follows the source listing.\n")
+QUESTION = ("\n\nImplement canonicalize_ranges(intervals) in Python. Each input pair (lo, hi) denotes a "
+            "half-open integer interval. Reject reversed endpoints with ValueError, ignore empty intervals, "
+            "merge touching or overlapping intervals, and return sorted disjoint pairs. Include a type "
+            "signature, complexity and four pytest examples covering duplicates, negative endpoints, "
+            "reversed endpoints and empty input.\n")
+SUFFIX = QUESTION + "\nHere is the implementation and its tests.\n\n```python\n"
+
+
+def code_checks(answer):
+    """Inspect syntax and structural evidence. Never import, compile to bytecode, or execute a completion."""
+    if len(answer) > 65536:
+        return {"method": "static inspection", "inspected": False,
+                "reason": "Answer exceeds the 65,536-character inspection budget."}
+    # The request already opens a Markdown fence. Later fenced Python test blocks are common.
+    blocks = re.split(r"(?m)^\s*```[^\n]*$", answer)
+    functions, examples, has_complete_block = [], [], False
+    for block in blocks:
+        lines = block.strip("\n").splitlines()
+        if not lines:
+            continue
+        # The final line or test may be truncated at the output cap. Preserve preceding definitions.
+        end = len(lines)
+        for _ in range(8):
+            try:
+                module = ast.parse("\n".join(lines[:end]))
+            except SyntaxError as error:
+                end = min(end - 1, (error.lineno or end) - 1)
+                if end < 1:
+                    break
+                continue
+            except (ValueError, RecursionError):
+                break
+            functions.extend(node for node in module.body if isinstance(node, ast.FunctionDef))
+            examples.extend(node for node in module.body if isinstance(node, (ast.Assert, ast.With)))
+            if end == len(lines) and any(isinstance(node, ast.FunctionDef) for node in module.body):
+                has_complete_block = True
+            break
+    f = next((n for n in functions if n.name == "canonicalize_ranges"), None)
+    nodes = list(ast.walk(f)) if f else []
+    tests = [n for n in functions if n.name.startswith("test_")]
+    test_nodes = [n for test in [*tests, *examples] for n in ast.walk(test)]
+    names = {n.id for n in nodes if isinstance(n, ast.Name)}
+    attrs = {n.attr for n in nodes if isinstance(n, ast.Attribute)}
+    operators = {type(op) for n in nodes if isinstance(n, ast.Compare) for op in n.ops}
+    errors = [n.exc for n in nodes if isinstance(n, ast.Raise)]
+    raises_value_error = any(isinstance(e, ast.Name) and e.id == "ValueError" or
+        isinstance(e, ast.Call) and isinstance(e.func, ast.Name) and e.func.id == "ValueError" for e in errors)
+    covered = {"duplicates": False, "negative_endpoints": False, "reversed_endpoints": False, "empty_input": False}
+    literal_arguments = {}
+    for statements in [*(test.body for test in tests), examples]:
+        names_in_example = {}
+        for statement in statements:
+            for call in ast.walk(statement):
+                if isinstance(call, ast.Call) and call.args and isinstance(call.args[0], ast.Name):
+                    literal_arguments[id(call)] = names_in_example.get(call.args[0].id)
+            if isinstance(statement, ast.Assign):
+                for target in statement.targets:
+                    if isinstance(target, ast.Name):
+                        names_in_example[target.id] = statement.value
+    for node in test_nodes:
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "canonicalize_ranges" and node.args):
+            continue
+        arg = literal_arguments.get(id(node), node.args[0])
+        if not isinstance(arg, (ast.List, ast.Tuple)):
+            continue
+        covered["empty_input"] |= not arg.elts
+        pairs = []
+        for pair in arg.elts:
+            if not isinstance(pair, (ast.List, ast.Tuple)) or len(pair.elts) != 2:
+                continue
+            try:
+                lo, hi = (ast.literal_eval(x) for x in pair.elts)
+            except (ValueError, TypeError, RecursionError):
+                continue
+            if type(lo) is int and type(hi) is int:
+                pairs.append((lo, hi))
+                covered["negative_endpoints"] |= min(lo, hi) < 0
+                covered["reversed_endpoints"] |= lo > hi
+        covered["duplicates"] |= len(pairs) > len(set(pairs))
+    return {
+        "method": "Static Python AST and text checks. These observations do not establish functional correctness.",
+        "complete_parseable_block": has_complete_block, "function_defined": f is not None,
+        "typed_input_and_return": bool(f and f.returns and any(arg.annotation for arg in f.args.args)),
+        "raises_ValueError": raises_value_error, "uses_sort": "sorted" in names or "sort" in attrs,
+        "has_equality_comparison": ast.Eq in operators or ast.NotEq in operators,
+        "has_ordering_comparison": bool(operators & {ast.Gt, ast.GtE, ast.Lt, ast.LtE}),
+        "has_inclusive_ordering_comparison": bool(operators & {ast.GtE, ast.LtE}),
+        "has_return_value": any(isinstance(n, ast.Return) and n.value is not None for n in nodes),
+        "function_ends_in_value_return": bool(f and isinstance(f.body[-1], ast.Return)
+                                              and f.body[-1].value is not None),
+        "mentions_complexity": bool(re.search(r"\bO\s*\([^)]+\)", answer)),
+        "pytest_test_functions": len(tests),
+        "literal_examples_found": covered,
+        "test_assert_statements": sum(isinstance(n, ast.Assert) for n in test_nodes),
+        "test_raises_calls": sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                                 and n.func.attr == "raises" for n in test_nodes),
+    }
+
+
+def run(a):
+    props = api(a.port, "props")
+    context = props["default_generation_settings"]["n_ctx"]
+    if a.tokens + a.output_tokens > context:
+        raise ValueError(f"{a.tokens} input and {a.output_tokens} output tokens exceed the {context}-token slot")
+
+    def tokenize(text):
+        return api(a.port, "tokenize", {"content": text, "add_special": False}, timeout=a.timeout)["tokens"]
+
+    prefix, suffix = tokenize(PREFIX), tokenize(SUFFIX)
+    needed = a.tokens - len(prefix) - len(suffix)
+    if needed <= 0:
+        raise ValueError(f"The benchmark requires more than {len(prefix) + len(suffix)} input tokens")
+    body, sources = [], []
+    for name in FILES:
+        path = a.source_root / name
+        text = path.read_text()
+        sources.append({"file": name, "sha256": hashlib.sha256(text.encode()).hexdigest()})
+        body.extend(tokenize("\n--- " + name + " ---\n" + text))
+        if len(body) >= needed:
+            break
+    if len(body) < needed:
+        raise ValueError("The source tree supplies too few tokens for this prompt")
+    ids = prefix + body[:needed] + suffix
+    result = api(a.port, "completion", {"prompt": ids, "n_predict": a.output_tokens, "cache_prompt": False,
+                 "temperature": 0, "seed": 42, "return_tokens": True}, timeout=a.timeout)
+    t = result["timings"]
+    if (t["cache_n"], t["prompt_n"], t["predicted_n"]) != (0, a.tokens, len(result["tokens"])):
+        raise ValueError(f"Unexpected tokenizer, prompt cache, or output count: {t}")
+    return {"tokens": a.tokens, "ids_sha256": hashlib.sha256(json.dumps(ids).encode()).hexdigest(),
+            "context_tokens": context, "output_limit": a.output_tokens, "model_file": Path(props["model_path"]).name,
+            "output_ids_sha256": hashlib.sha256(json.dumps(result["tokens"], separators=(",", ":")).encode()).hexdigest(),
+            "sources": sources, "question": QUESTION.strip(), "timings": t,
+            "answer": result["content"], "stop": result.get("stop_type"),
+            "static_checks": code_checks(result["content"])}
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--tokens", type=int, default=20480, help="exact cold prompt length (default 20480)")
+    p.add_argument("--output-tokens", type=int, default=256, help="maximum generated tokens, 1–4096 (default 256)")
+    p.add_argument("--port", type=int, default=int(os.getenv("INKLING_BACKEND_PORT", "18567")))
+    p.add_argument("--source-root", type=Path, default=ROOT / ".runtime/llama.cpp-b12602",
+                   help="llama.cpp source tree from setup.sh")
+    p.add_argument("--timeout", type=int, default=7200, help="seconds per request")
+    p.add_argument("--inspect-json", type=Path, help="only inspect the answer from a saved code result offline")
+    a = p.parse_args()
+    if not a.inspect_json and (a.tokens < 1 or a.timeout < 1 or not 1 <= a.port <= 65535
+                               or not 1 <= a.output_tokens <= 4096):
+        p.error("Choose positive input and timeout values, a valid backend port and 1–4096 output tokens")
+    try:
+        result = code_checks(json.loads(a.inspect_json.read_text())["answer"]) if a.inspect_json else run(a)
+    except (OSError, ValueError, KeyError, URLError) as e:
+        p.exit(1, f"Code benchmark failed: {e}\n")
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

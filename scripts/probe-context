@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""Measure retrieval and streaming inference at an exact chat prompt length."""
+import argparse
+import json
+import os
+import random
+import re
+import secrets
+import sys
+import time
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--tokens", type=int, required=True, help="templated input tokens, excluding output")
+    parser.add_argument("--depth", type=float, default=0.1, help="fraction of archive rows before the marker (default 0.1)")
+    parser.add_argument("--seed", type=int, help="repeat an archive and marker from a previous run")
+    args = parser.parse_args()
+    if not 0 <= args.depth <= 1 or args.tokens < 1:
+        parser.error("Supply a positive token count and a depth between 0 and 1")
+
+    base = "http://127.0.0.1:" + os.environ.get("INKLING_PORT", "11434")
+    model = os.environ.get("INKLING_MODEL", "inkling-2-mini:latest")
+
+    def post(path, payload):
+        req = Request(base + path, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+        return urlopen(req, timeout=7200)
+
+    def query(path, payload):
+        with post(path, payload) as response:
+            return json.load(response)
+
+    info = query("/api/show", {"model": model})["model_info"]
+    context = info[info["general.architecture"] + ".context_length"]
+    output_tokens = 64
+    if args.tokens + output_tokens > context:
+        parser.error(f"The running model has {context} tokens. Allow {output_tokens} for the reply.")
+    seed = args.seed if args.seed is not None else secrets.randbits(48)
+    rng = random.Random(seed)
+    answer = str(rng.randrange(10_000_000, 100_000_000))
+    records = []
+    assistant_prefix = "The shelf label for Cobalt Pier is "
+
+    def payload(rows, padding=0):
+        while len(records) < rows:
+            code = str(rng.randrange(10_000_000, 100_000_000))
+            if code != answer:
+                records.append(f"Archive {len(records) + 1}: shelf label {code}.\n")
+        at = int(rows * args.depth)
+        msg = ("Read this public museum catalog, then answer the question at the end.\n"
+               + "".join(records[:at]) + f"Archive Cobalt Pier: shelf label {answer}.\n"
+               + "".join(records[at:rows]) + "End of archive" + " log" * padding
+               + "\nWhat is the shelf label for Cobalt Pier? Reply with the eight digits only.")
+        return {"model": model, "messages": [{"role": "user", "content": msg},
+                                             {"role": "assistant", "content": assistant_prefix}],
+                "continue_final_message": "content", "add_generation_prompt": False,
+                "temperature": 0, "max_tokens": output_tokens,
+                "cache_prompt": False}
+
+    def count(body):
+        return query("/v1/chat/completions/input_tokens", body)["input_tokens"]
+
+    base_tokens = count(payload(0))
+    if args.tokens < base_tokens:
+        parser.error(f"The retrieval question alone needs {base_tokens} tokens")
+    # Size a full archive using a sample. Reserve one row of slack, then pad to the exact count.
+    sample_tokens = count(payload(64))
+    per_row = (sample_tokens - base_tokens) / 64
+    rows = max(0, int((args.tokens - base_tokens) / per_row) - 1)
+    size = count(payload(rows))
+    while size > args.tokens:
+        rows = max(0, rows - max(1, int((size - args.tokens) / per_row) + 1))
+        size = count(payload(rows))
+    body = payload(rows, padding=args.tokens - size)
+    counted = count(body)
+    if counted != args.tokens:
+        raise ValueError(f"Tokenizer counted {counted} tokens after padding, expected {args.tokens}")
+
+    print(f"Testing {counted} input tokens in a {context}-token window (seed {seed}).", file=sys.stderr, flush=True)
+    body.update(stream=True, stream_options={"include_usage": True}, return_progress=True)
+    parts, usage, timings = [], {}, {}
+    finish, first_token = None, None
+    done = False
+    start = last_progress = time.monotonic()
+    with post("/v1/chat/completions", body) as response:
+        for line in response:
+            if not line.startswith(b"data:"):
+                continue
+            data = line[5:].strip()
+            if data == b"[DONE]":
+                done = True
+                break
+            event = json.loads(data)
+            if "error" in event:
+                raise ValueError(str(event["error"]))
+            now = time.monotonic()
+            progress = event.get("prompt_progress")
+            if progress and now - last_progress >= 30:
+                print(f"Prefill {progress['processed']}/{progress['total']} ({now - start:.0f}s).",
+                      file=sys.stderr, flush=True)
+                last_progress = now
+            for choice in event.get("choices", []):
+                delta = choice.get("delta") or {}
+                if first_token is None and any(delta.get(k) for k in ("content", "reasoning_content", "reasoning")):
+                    first_token = now - start
+                parts.append(delta.get("content") or "")
+                finish = choice.get("finish_reason") or finish
+            usage.update(event.get("usage") or {})
+            timings.update(event.get("timings") or {})
+
+    reply = "".join(parts).strip()
+    continuation = reply.removeprefix(assistant_prefix).strip()
+    match = re.fullmatch(r"[*`\s]*([0-9]{8})[.*`\s]*", continuation)
+    actual = match[1] if match else continuation
+    passed = (done and finish == "stop" and actual == answer and usage.get("prompt_tokens") == counted
+              and usage.get("completion_tokens", 0) > 0)
+    print(json.dumps({"passed": passed, "context": context, "seed": seed, "depth": args.depth, "rows": rows,
+                      "requested_input_tokens": counted, "usage": usage, "expected": answer, "answer": actual,
+                      "raw_reply": reply, "assistant_prefix": assistant_prefix,
+                      "finish_reason": finish, "stream_done": done, "timings": timings,
+                      "first_token_s": first_token, "elapsed_s": round(time.monotonic() - start, 3)}), flush=True)
+    return 0 if passed else 1
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except HTTPError as exc:
+        sys.exit(f"HTTP {exc.code}: {exc.read(2048).decode(errors='replace')}")
+    except (URLError, OSError, ValueError) as exc:
+        sys.exit(str(exc))

@@ -1,0 +1,685 @@
+{
+  "hardware": "RTX 5070 Ti, Ryzen 9 9950X3D, WSL2, desktop sharing the GPU",
+  "checkpoint": "Inkling 2 Mini UD-Q4_K_M",
+  "checkpoint_sha256": "78fcedcf93c5d1bfe83e225513b71392bb52259be0eaa5f8899c856a2e5834ae",
+  "context": 131072,
+  "batch": 1536,
+  "kv": "FP16/FP16",
+  "parallel": 1,
+  "method": "Two serial workers used the same cold prompts and generated 256 tokens per request. CUPTI captures kernel and memcpy activity on four adjacent tokens starting 128 cells after each prompt. Profiler activation, boundary synchronization and trace flushing affect the reported request rates. Per-class activity is the union within that class and can overlap other classes. Uncovered time includes host scheduling, synchronization and driver or profiler overhead. Gaps use the most recent recorded GPU activity. A 512-byte copy is attributed to expert scales by its payload, graph location, checkpoint metadata and disappearance with the anchored placement rule. Of 48 attention calls, the eight global passes are at indices 5,11,17,23,29,35,41,47 in execution order. Classification uses their captured graph node IDs when an activity window misses the first local-attention call.",
+  "limits": {
+    "whole_device_decimal_gb": 15,
+    "runtime_growth_decimal_gb": 12
+  },
+  "runs": {
+    "host_scales": {
+      "dropped": 0,
+      "cases": {
+        "20480": {
+          "ids_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_ids_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24365.156,
+            "prompt_per_token_ms": 1.1897048828124999,
+            "prompt_per_second": 840.5445875249064,
+            "predicted_n": 256,
+            "predicted_ms": 7718.705,
+            "predicted_per_token_ms": 30.26943137254902,
+            "predicted_per_second": 33.03662984917806
+          },
+          "stop": "limit",
+          "memory": {
+            "expert_cache_allocated_mib": 7528.062333374023,
+            "expert_cache_slots": 1639,
+            "expert_cache_mib": 2295,
+            "expert_cache_pools": [
+              {
+                "layers": 20,
+                "weight_type": "nvfp4",
+                "slots": 1367
+              },
+              {
+                "layers": 4,
+                "weight_type": "q8_0",
+                "slots": 272
+              }
+            ],
+            "global_kv_committed_mib": 768,
+            "device_peak_mib": 12389,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10441,
+            "growth_limit_mib": 11444,
+            "backend_peak_rss_mib": 15667,
+            "host_available_mib": 13369
+          },
+          "cupti": {
+            "positions": [
+              20608,
+              20609,
+              20610,
+              20611
+            ],
+            "median_ms": {
+              "ms": 32.231874000000005,
+              "gpu_union_ms": 17.445128,
+              "uncovered_ms": 14.324489,
+              "gaps_after_h2d_512_ms": 8.981168499999999,
+              "activation quantization": 0.9119714999999999,
+              "attention reductions": 0.451671,
+              "elementwise, state, and other": 5.197983499999999,
+              "expert GPU routing": 0.7221709999999999,
+              "expert PCIe gather": 2.408077,
+              "explicit copies": 0.08913650000000001,
+              "fused loop controllers": 0.389174,
+              "global attention": 0.881419,
+              "linear projections": 7.0714915000000005,
+              "local attention": 0.677624
+            },
+            "median_512byte_h2d_transfers": 88.0,
+            "median_kernel_count": 6630.0,
+            "median_cuda_graph_ids": 49.0
+          }
+        },
+        "65536": {
+          "ids_sha256": "d1b8779d1191ed8bf15446a000cfd62611739befd2975d51adec0ceac7b4cdac",
+          "output_ids_sha256": "8a78787dfdd16d3b17d65582cc4c4a6df9ce2eaaebfd1f6c300e75b3f7196057",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 65536,
+            "prompt_ms": 88384.994,
+            "prompt_per_token_ms": 1.3486479797363282,
+            "prompt_per_second": 741.4833336980256,
+            "predicted_n": 256,
+            "predicted_ms": 8542.112,
+            "predicted_per_token_ms": 33.49847843137255,
+            "predicted_per_second": 29.85210214991328
+          },
+          "stop": "limit",
+          "memory": {
+            "expert_cache_allocated_mib": 6119.892333374023,
+            "expert_cache_slots": 1332,
+            "expert_cache_mib": 2295,
+            "expert_cache_pools": [
+              {
+                "layers": 20,
+                "weight_type": "nvfp4",
+                "slots": 1111
+              },
+              {
+                "layers": 4,
+                "weight_type": "q8_0",
+                "slots": 221
+              }
+            ],
+            "global_kv_committed_mib": 2176,
+            "device_peak_mib": 12389,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10441,
+            "growth_limit_mib": 11444,
+            "backend_peak_rss_mib": 15775,
+            "host_available_mib": 13297
+          },
+          "cupti": {
+            "positions": [
+              65664,
+              65665,
+              65666,
+              65667
+            ],
+            "median_ms": {
+              "ms": 34.8623585,
+              "gpu_union_ms": 19.645426999999998,
+              "uncovered_ms": 15.898786999999999,
+              "gaps_after_h2d_512_ms": 11.512670499999999,
+              "activation quantization": 1.554999,
+              "attention reductions": 1.0971185,
+              "elementwise, state, and other": 5.0854735,
+              "expert GPU routing": 0.7337945,
+              "expert PCIe gather": 2.574098,
+              "explicit copies": 0.19095,
+              "fused loop controllers": 0.3863475,
+              "global attention": 3.221958,
+              "linear projections": 7.6818345,
+              "local attention": 0.6790265
+            },
+            "median_512byte_h2d_transfers": 88.0,
+            "median_kernel_count": 6502.0,
+            "median_cuda_graph_ids": 49.0
+          }
+        },
+        "130560": {
+          "ids_sha256": "adaa1977f576ec8949b4e93aa3fb174e1f4ce9f48254b9a9fd90e0e5a9359545",
+          "output_ids_sha256": "3418d310bfb3c43fee683676e6d1aa532d08295dc163e29b11a9133dba18ffa1",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 130560,
+            "prompt_ms": 198537.879,
+            "prompt_per_token_ms": 1.5206639016544117,
+            "prompt_per_second": 657.6075087414429,
+            "predicted_n": 256,
+            "predicted_ms": 9989.679,
+            "predicted_per_token_ms": 39.175211764705885,
+            "predicted_per_second": 25.52634574143974
+          },
+          "stop": "limit",
+          "memory": {
+            "expert_cache_allocated_mib": 4459.712333374024,
+            "expert_cache_slots": 970,
+            "expert_cache_mib": 2295,
+            "expert_cache_pools": [
+              {
+                "layers": 20,
+                "weight_type": "nvfp4",
+                "slots": 809
+              },
+              {
+                "layers": 4,
+                "weight_type": "q8_0",
+                "slots": 161
+              }
+            ],
+            "global_kv_committed_mib": 4096,
+            "device_peak_mib": 12655,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10707,
+            "growth_limit_mib": 11444,
+            "backend_peak_rss_mib": 15827,
+            "host_available_mib": 13235
+          },
+          "cupti": {
+            "positions": [
+              130688,
+              130689,
+              130690,
+              130691
+            ],
+            "median_ms": {
+              "ms": 41.973507,
+              "gpu_union_ms": 26.093761,
+              "uncovered_ms": 15.855144999999998,
+              "gaps_after_h2d_512_ms": 11.227901,
+              "activation quantization": 2.4077865000000003,
+              "attention reductions": 1.9473815,
+              "elementwise, state, and other": 5.112703,
+              "expert GPU routing": 0.919881,
+              "expert PCIe gather": 5.969933,
+              "explicit copies": 0.20828750000000001,
+              "fused loop controllers": 0.393071,
+              "global attention": 6.347493500000001,
+              "linear projections": 8.489944,
+              "local attention": 0.7019504999999999
+            },
+            "median_512byte_h2d_transfers": 88.0,
+            "median_kernel_count": 6502.0,
+            "median_cuda_graph_ids": 49.0
+          }
+        }
+      }
+    },
+    "gpu_scales": {
+      "dropped": 0,
+      "cases": {
+        "20480": {
+          "ids_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_ids_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24586.407,
+            "prompt_per_token_ms": 1.200508154296875,
+            "prompt_per_second": 832.9805977750226,
+            "predicted_n": 256,
+            "predicted_ms": 5853.456,
+            "predicted_per_token_ms": 22.954729411764706,
+            "predicted_per_second": 43.56400731465309
+          },
+          "stop": "limit",
+          "memory": {
+            "expert_cache_allocated_mib": 7528.062333374023,
+            "expert_cache_slots": 1639,
+            "expert_cache_mib": 2295,
+            "expert_cache_pools": [
+              {
+                "layers": 20,
+                "weight_type": "nvfp4",
+                "slots": 1367
+              },
+              {
+                "layers": 4,
+                "weight_type": "q8_0",
+                "slots": 272
+              }
+            ],
+            "global_kv_committed_mib": 768,
+            "device_peak_mib": 12395,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10347,
+            "growth_limit_mib": 11444,
+            "backend_peak_rss_mib": 15769,
+            "host_available_mib": 13299
+          },
+          "cupti": {
+            "positions": [
+              20608,
+              20609,
+              20610,
+              20611
+            ],
+            "median_ms": {
+              "ms": 20.9230745,
+              "gpu_union_ms": 17.6307105,
+              "uncovered_ms": 3.5000459999999984,
+              "gaps_after_h2d_512_ms": 0.0,
+              "activation quantization": 0.9118175,
+              "attention reductions": 0.4515015,
+              "elementwise, state, and other": 5.196246,
+              "expert GPU routing": 0.722712,
+              "expert PCIe gather": 2.4157754999999996,
+              "explicit copies": 0.018695,
+              "fused loop controllers": 0.38615350000000004,
+              "global attention": 0.8816535000000001,
+              "linear projections": 7.0438469999999995,
+              "local attention": 0.6789425
+            },
+            "median_512byte_h2d_transfers": 0.0,
+            "median_kernel_count": 6631.0,
+            "median_cuda_graph_ids": 49.0
+          }
+        },
+        "65536": {
+          "ids_sha256": "d1b8779d1191ed8bf15446a000cfd62611739befd2975d51adec0ceac7b4cdac",
+          "output_ids_sha256": "8a78787dfdd16d3b17d65582cc4c4a6df9ce2eaaebfd1f6c300e75b3f7196057",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 65536,
+            "prompt_ms": 85267.494,
+            "prompt_per_token_ms": 1.3010787048339845,
+            "prompt_per_second": 768.593011540834,
+            "predicted_n": 256,
+            "predicted_ms": 6661.84,
+            "predicted_per_token_ms": 26.12486274509804,
+            "predicted_per_second": 38.27771306425852
+          },
+          "stop": "limit",
+          "memory": {
+            "expert_cache_allocated_mib": 6119.892333374023,
+            "expert_cache_slots": 1332,
+            "expert_cache_mib": 2295,
+            "expert_cache_pools": [
+              {
+                "layers": 20,
+                "weight_type": "nvfp4",
+                "slots": 1111
+              },
+              {
+                "layers": 4,
+                "weight_type": "q8_0",
+                "slots": 221
+              }
+            ],
+            "global_kv_committed_mib": 2176,
+            "device_peak_mib": 12395,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10347,
+            "growth_limit_mib": 11444,
+            "backend_peak_rss_mib": 15801,
+            "host_available_mib": 13246
+          },
+          "cupti": {
+            "positions": [
+              65664,
+              65665,
+              65666,
+              65667
+            ],
+            "median_ms": {
+              "ms": 22.7302515,
+              "gpu_union_ms": 19.5665385,
+              "uncovered_ms": 3.5677205,
+              "gaps_after_h2d_512_ms": 0.0,
+              "activation quantization": 1.549081,
+              "attention reductions": 1.0883435,
+              "elementwise, state, and other": 5.1094455,
+              "expert GPU routing": 0.7351185,
+              "expert PCIe gather": 2.5871925,
+              "explicit copies": 0.125056,
+              "fused loop controllers": 0.38869699999999996,
+              "global attention": 3.2144719999999998,
+              "linear projections": 7.788980499999999,
+              "local attention": 0.6788125
+            },
+            "median_512byte_h2d_transfers": 0.0,
+            "median_kernel_count": 6503.0,
+            "median_cuda_graph_ids": 49.0
+          }
+        },
+        "130560": {
+          "ids_sha256": "adaa1977f576ec8949b4e93aa3fb174e1f4ce9f48254b9a9fd90e0e5a9359545",
+          "output_ids_sha256": "3418d310bfb3c43fee683676e6d1aa532d08295dc163e29b11a9133dba18ffa1",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 130560,
+            "prompt_ms": 196701.273,
+            "prompt_per_token_ms": 1.506596760110294,
+            "prompt_per_second": 663.7476108250709,
+            "predicted_n": 256,
+            "predicted_ms": 8133.951,
+            "predicted_per_token_ms": 31.89784705882353,
+            "predicted_per_second": 31.35007820922452
+          },
+          "stop": "limit",
+          "memory": {
+            "expert_cache_allocated_mib": 4459.712333374024,
+            "expert_cache_slots": 970,
+            "expert_cache_mib": 2295,
+            "expert_cache_pools": [
+              {
+                "layers": 20,
+                "weight_type": "nvfp4",
+                "slots": 809
+              },
+              {
+                "layers": 4,
+                "weight_type": "q8_0",
+                "slots": 161
+              }
+            ],
+            "global_kv_committed_mib": 4096,
+            "device_peak_mib": 12639,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10591,
+            "growth_limit_mib": 11444,
+            "backend_peak_rss_mib": 15851,
+            "host_available_mib": 13195
+          },
+          "cupti": {
+            "positions": [
+              130688,
+              130689,
+              130690,
+              130691
+            ],
+            "median_ms": {
+              "ms": 31.058816999999998,
+              "gpu_union_ms": 27.633789,
+              "uncovered_ms": 3.4250279999999993,
+              "gaps_after_h2d_512_ms": 0.0,
+              "activation quantization": 2.4221494999999997,
+              "attention reductions": 1.9601095,
+              "elementwise, state, and other": 5.09906,
+              "expert GPU routing": 0.908499,
+              "expert PCIe gather": 7.0069285,
+              "explicit copies": 0.11905099999999999,
+              "fused loop controllers": 0.391987,
+              "global attention": 6.7466975,
+              "linear projections": 8.468518,
+              "local attention": 0.695666
+            },
+            "median_512byte_h2d_transfers": 0.0,
+            "median_kernel_count": 6459.5,
+            "median_cuda_graph_ids": 48.5
+          }
+        }
+      }
+    }
+  },
+  "slot_budget_estimate": {
+    "expert_slots": 1639,
+    "expert_pool_mib": 7528.06,
+    "heavier_desktop_example_mib": 2505,
+    "non_global_decode_ggml_mib": 1672,
+    "global_fp16_kv_bytes_per_token": 32768,
+    "global_kv_growth_quantum_rows": 4096,
+    "runtime_allocator_reservation_mib": 512,
+    "earlier_default_policy_fp16_backing_tokens": 24576,
+    "optimistic_fp16_rows_at_15gb": 53248,
+    "optimistic_fp16_rows_at_14gb": 32768,
+    "notes": "Optimistic rows are floor of the remaining shared buffer allowance to complete allocation extents and exclude additional driver overhead. Actual peak includes desktop activity and other device allocations."
+  },
+  "same_prompt_and_output_tokens": {
+    "20480": true,
+    "65536": true,
+    "130560": true
+  },
+  "greedy_logits_check": {
+    "prompt_count": 4,
+    "generated_tokens": 128,
+    "reported_top8_logprobs": 1024,
+    "match": true
+  },
+  "bandwidth_examples": {
+    "ddr5_dimm_config": {
+      "reported_by": "Windows Win32_PhysicalMemory",
+      "dimm_count": 2,
+      "mt_per_second": 6000,
+      "nominal_gb_per_s": 96
+    },
+    "gpu_spec_gb_per_s": 896,
+    "previously_measured_mapped_expert_transfer_gb_per_s": [
+      50,
+      53
+    ],
+    "global_fp16_kv_gib_at_full_context": 4,
+    "examples_are_peak_or_isolated_transfer_rates": true
+  },
+  "retained_expert_capacity_trial": {
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 45056,
+      "prompt_ms": 57314.393,
+      "prompt_per_token_ms": 1.272070157137784,
+      "prompt_per_second": 786.120163568687,
+      "predicted_n": 256,
+      "predicted_ms": 5768.055,
+      "predicted_per_token_ms": 22.619823529411764,
+      "predicted_per_second": 44.20900979619646
+    },
+    "runtime": {
+      "backend_peak_rss_mib": 15678,
+      "backend_rss_mib": 15653,
+      "host_available_mib": 13351,
+      "expert_compute": "CUDA0",
+      "host_global_kv": 0,
+      "host_output": false,
+      "load_mode": "dio",
+      "requested_load_mode": "dio",
+      "fast_relative_positions": true,
+      "packed_global_mask_requested": true,
+      "compact_attention_requested": "native",
+      "elastic_global_kv_requested": true,
+      "elastic_global_kv_mode": "auto",
+      "elastic_global_kv_active": true,
+      "controller_fusion_requested": "sm120-qkv",
+      "device_routes_requested": true,
+      "device_routes_state": "active",
+      "device_routes_active": true,
+      "cache_ram_mib": 0,
+      "ctx_checkpoints": 0,
+      "stage_global_kv": true,
+      "host_global_attention": {},
+      "expert_cache_mib": 2295,
+      "expert_cache_decode_extra_limit_mib": 5241,
+      "expert_cache_decode_headroom_limit_mib": 1536,
+      "prompt_lookup": "none",
+      "lookup_match_tokens": 4,
+      "lookup_rollback_rows": 0,
+      "expert_cache_decode_min_tokens": 12,
+      "expert_cache_allocated_mib": 7528.062333374023,
+      "host_expert_weights_mib": 14094.0,
+      "expert_cache_slots": 1639,
+      "expert_cache_pools": [
+        {
+          "layers": 20,
+          "weight_type": "nvfp4",
+          "slots": 1367
+        },
+        {
+          "layers": 4,
+          "weight_type": "q8_0",
+          "slots": 272
+        }
+      ],
+      "expert_cache_phase": "decode",
+      "expert_cache_compute_scratch_mib": 2.0,
+      "compact_prefill_kernel_observed": "native",
+      "controller_fusion_observed": "sm120-qkv",
+      "compact_decode_kernel_observed": "vector",
+      "global_kv_reserved_mib": 4096,
+      "global_kv_committed_mib": 1536,
+      "global_kv_page_kib": 2048,
+      "global_kv_chunk_kib": 8192,
+      "global_kv_target_rows": 45312,
+      "device_routes_metadata_bytes": 296048,
+      "device_routes_session": {
+        "visits": 10752,
+        "all_hit_visits": 7129,
+        "hits": 80318,
+        "misses": 5698,
+        "miss_bytes": 26522505216
+      },
+      "cache_type_k": "f16",
+      "cache_type_v": "f16",
+      "batch": 1536,
+      "ubatch": 1536,
+      "gpu_layers": 49,
+      "device_limit_mib": 14305,
+      "device_peak_mib": 13067,
+      "growth_limit_mib": 11444,
+      "growth_peak_mib": 11076,
+      "reserve_mib": 1024
+    },
+    "ids_sha256": "9b6252b2674374462caabd3c37b967a3c38be0d1c2be0df4949080e2c837c405",
+    "output_ids_sha256": "e49e5b2556b2215e865b0c247aa14900aa6ad3fa56da410faf89314da8f5ff85",
+    "decode_extra_limit_mib": 5241,
+    "decode_headroom_mib": 1536,
+    "fp16_backing_token_capacity": 49152,
+    "active_tokens": 45312
+  },
+  "unprofiled_serving": {
+    "20k": {
+      "tokens": 20480,
+      "ids_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+      "context_tokens": 131072,
+      "output_limit": 768,
+      "output_ids_sha256": "fbf337d3224f308ad4bb843ab2aaba714183796759ae2796290213050c51e0a0",
+      "sources": [
+        {
+          "file": "src/llama-kv-cache.cpp",
+          "sha256": "3772927df0288762e19f8d227343f90dc0d88ee83cbaeb67893e51c2c7334b9c"
+        }
+      ],
+      "question": "Implement canonicalize_ranges(intervals) in Python. Each input pair (lo, hi) denotes a half-open integer interval. Reject reversed endpoints with ValueError, ignore empty intervals, merge touching or overlapping intervals, and return sorted disjoint pairs. Include a type signature, complexity and four pytest examples covering duplicates, negative endpoints, reversed endpoints and empty input.",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 20480,
+        "prompt_ms": 24516.834,
+        "prompt_per_token_ms": 1.19711103515625,
+        "prompt_per_second": 835.3444005045676,
+        "predicted_n": 768,
+        "predicted_ms": 15575.468,
+        "predicted_per_token_ms": 20.306998696219036,
+        "predicted_per_second": 49.24410618030867
+      },
+      "stop": "limit",
+      "static_checks": {
+        "method": "Static Python AST and text checks. These observations do not establish functional correctness.",
+        "complete_parseable_block": true,
+        "function_defined": true,
+        "typed_input_and_return": true,
+        "raises_ValueError": true,
+        "uses_sort": true,
+        "has_equality_comparison": false,
+        "has_ordering_comparison": true,
+        "has_inclusive_ordering_comparison": true,
+        "has_return_value": true,
+        "function_ends_in_value_return": true,
+        "mentions_complexity": true,
+        "pytest_test_functions": 4,
+        "literal_examples_found": {
+          "duplicates": true,
+          "negative_endpoints": true,
+          "reversed_endpoints": true,
+          "empty_input": true
+        },
+        "test_assert_statements": 3,
+        "test_raises_calls": 1
+      },
+      "runtime": {
+        "backend_peak_rss_mib": 15664,
+        "backend_rss_mib": 15639,
+        "host_available_mib": 13406,
+        "expert_compute": "CUDA0",
+        "host_global_kv": 0,
+        "host_output": false,
+        "load_mode": "dio",
+        "requested_load_mode": "dio",
+        "fast_relative_positions": true,
+        "packed_global_mask_requested": true,
+        "compact_attention_requested": "native",
+        "elastic_global_kv_requested": true,
+        "elastic_global_kv_mode": "auto",
+        "elastic_global_kv_active": true,
+        "controller_fusion_requested": "sm120-qkv",
+        "device_routes_requested": true,
+        "device_routes_state": "active",
+        "device_routes_active": true,
+        "cache_ram_mib": 0,
+        "ctx_checkpoints": 0,
+        "stage_global_kv": true,
+        "host_global_attention": {},
+        "expert_cache_mib": 2295,
+        "expert_cache_decode_extra_limit_mib": 6144,
+        "expert_cache_decode_headroom_limit_mib": 768,
+        "prompt_lookup": "none",
+        "lookup_match_tokens": 4,
+        "lookup_rollback_rows": 0,
+        "expert_cache_decode_min_tokens": 12,
+        "expert_cache_allocated_mib": 7528.062333374023,
+        "host_expert_weights_mib": 14094.0,
+        "expert_cache_slots": 1639,
+        "expert_cache_pools": [
+          {
+            "layers": 20,
+            "weight_type": "nvfp4",
+            "slots": 1367
+          },
+          {
+            "layers": 4,
+            "weight_type": "q8_0",
+            "slots": 272
+          }
+        ],
+        "expert_cache_phase": "decode",
+        "expert_cache_compute_scratch_mib": 2.0,
+        "compact_prefill_kernel_observed": "native",
+        "controller_fusion_observed": "sm120-qkv",
+        "compact_decode_kernel_observed": "vector",
+        "global_kv_reserved_mib": 4096,
+        "global_kv_committed_mib": 768,
+        "global_kv_page_kib": 2048,
+        "global_kv_chunk_kib": 8192,
+        "global_kv_target_rows": 20736,
+        "device_routes_metadata_bytes": 296048,
+        "device_routes_session": {
+          "visits": 35328,
+          "all_hit_visits": 23340,
+          "hits": 264735,
+          "misses": 17889,
+          "miss_bytes": 83928545280
+        },
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "batch": 1536,
+        "ubatch": 1536,
+        "gpu_layers": 49,
+        "device_limit_mib": 14305,
+        "device_peak_mib": 12304,
+        "growth_limit_mib": 11444,
+        "growth_peak_mib": 10318,
+        "reserve_mib": 1024
+      }
+    }
+  }
+}

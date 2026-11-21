@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Emit deterministic next-token samples and scores for comparison between two backends."""
+import json
+import os
+from urllib.request import Request, urlopen
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from comparison import PROMPTS
+
+url = os.environ.get("INKLING_BASE_URL", "http://127.0.0.1:11434/v1") + "/completions"
+for prompt in PROMPTS:
+    body = {"model": "inkling-2-mini:latest", "prompt": prompt, "max_tokens": 12,
+            "temperature": 0, "seed": 42, "logprobs": 1, "cache_prompt": False}
+    request = Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    with urlopen(request, timeout=300) as response:
+        choice = json.load(response)["choices"][0]
+    scores = choice["logprobs"]["content"]
+    if not scores:
+        raise ValueError("Missing next-token scores")
+    print(json.dumps({"prompt": prompt, "tokens": [s["id"] for s in scores],
+                      "logprobs": [s["logprob"] for s in scores]}),
+          flush=True)

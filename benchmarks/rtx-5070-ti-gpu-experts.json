@@ -1,0 +1,348 @@
+{
+  "hardware": "RTX 5070 Ti 16 GB, Ryzen 9 9950X3D, WSL2",
+  "checkpoint": "Unsloth UD-Q8_K_XL reference",
+  "backend": "patched llama.cpp b12602, all routed projections enforced on CUDA0",
+  "context_tokens": 131072,
+  "growth_limit_decimal_gb": 12,
+  "default_device_limit_decimal_gb": 14,
+  "method": "One GPU, one request at a time, greedy completion, 8 decode threads and 16 batch threads. Each prompt-rate trial starts with zero cached tokens. Device peaks include desktop usage. Pinned RAM / mmap trials are a separate fixed placement. Times reported by the inference server.",
+  "cold_prefill": [
+    {
+      "load_mode": "none",
+      "device_limit_decimal_gb": 14,
+      "batch": 512,
+      "microbatch": 128,
+      "expert_cache_mib": 1011,
+      "kv_types": [
+        "f16",
+        "f16"
+      ],
+      "host_global_kv_layers": 0,
+      "prompt_tokens": [
+        1024,
+        1024
+      ],
+      "cached_tokens": [
+        0,
+        0
+      ],
+      "decode_tokens": [
+        64,
+        64
+      ],
+      "prompt_tps": [
+        228.33,
+        226.61
+      ],
+      "decode_tps": [
+        17.01,
+        17.5
+      ],
+      "sampled_device_peak_mib": 12380,
+      "sampled_growth_peak_mib": 9195
+    },
+    {
+      "load_mode": "none",
+      "device_limit_decimal_gb": 14,
+      "batch": 512,
+      "microbatch": 256,
+      "expert_cache_mib": 1045,
+      "kv_types": [
+        "f16",
+        "f16"
+      ],
+      "host_global_kv_layers": 0,
+      "prompt_tokens": [
+        1024,
+        1024
+      ],
+      "cached_tokens": [
+        0,
+        0
+      ],
+      "decode_tokens": [
+        64,
+        64
+      ],
+      "prompt_tps": [
+        286.04,
+        370.2
+      ],
+      "decode_tps": [
+        17.47,
+        17.55
+      ],
+      "sampled_device_peak_mib": 12432,
+      "sampled_growth_peak_mib": 9247
+    },
+    {
+      "load_mode": "none",
+      "device_limit_decimal_gb": 14,
+      "batch": 512,
+      "microbatch": 512,
+      "expert_cache_mib": 956,
+      "kv_types": [
+        "f16",
+        "f16"
+      ],
+      "host_global_kv_layers": 0,
+      "prompt_tokens": [
+        1024,
+        1024
+      ],
+      "cached_tokens": [
+        0,
+        0
+      ],
+      "decode_tokens": [
+        64,
+        64
+      ],
+      "prompt_tps": [
+        534.46,
+        545.7
+      ],
+      "decode_tps": [
+        17.33,
+        17.64
+      ],
+      "sampled_device_peak_mib": 12470,
+      "sampled_growth_peak_mib": 9285
+    }
+  ],
+  "alternatives": [
+    {
+      "load_mode": "none",
+      "device_limit_decimal_gb": 14,
+      "batch": 512,
+      "microbatch": 256,
+      "expert_cache_mib": 3759,
+      "kv_types": [
+        "f16",
+        "f16"
+      ],
+      "host_global_kv_layers": 4,
+      "prompt_tokens": [
+        1024,
+        1024
+      ],
+      "cached_tokens": [
+        0,
+        0
+      ],
+      "decode_tokens": [
+        64,
+        64
+      ],
+      "prompt_tps": [
+        364.43,
+        358.05
+      ],
+      "decode_tps": [
+        19.19,
+        19.55
+      ],
+      "sampled_device_peak_mib": 12443,
+      "sampled_growth_peak_mib": 9259
+    },
+    {
+      "load_mode": "none",
+      "device_limit_decimal_gb": 14,
+      "batch": 512,
+      "microbatch": 512,
+      "expert_cache_mib": 2495,
+      "kv_types": [
+        "q8_0",
+        "q8_0"
+      ],
+      "host_global_kv_layers": 0,
+      "prompt_tokens": [
+        1024,
+        1024
+      ],
+      "cached_tokens": [
+        0,
+        0
+      ],
+      "decode_tokens": [
+        64,
+        64
+      ],
+      "prompt_tps": [
+        522.6,
+        566.22
+      ],
+      "decode_tps": [
+        18.75,
+        19.4
+      ],
+      "sampled_device_peak_mib": 12453,
+      "sampled_growth_peak_mib": 9269
+    }
+  ],
+  "pinned_host_comparison": [
+    {
+      "load_mode": "mmap",
+      "device_limit_decimal_gb": 14,
+      "batch": 512,
+      "microbatch": 4,
+      "expert_cache_mib": 1280,
+      "kv_types": [
+        "f16",
+        "f16"
+      ],
+      "host_global_kv_layers": 0,
+      "prompt_tokens": [
+        256
+      ],
+      "cached_tokens": [
+        0
+      ],
+      "decode_tokens": [
+        48
+      ],
+      "prompt_tps": [
+        11.83
+      ],
+      "decode_tps": [
+        9.42
+      ],
+      "sampled_device_peak_mib": 11382,
+      "sampled_growth_peak_mib": 8198
+    },
+    {
+      "load_mode": "none",
+      "device_limit_decimal_gb": 14,
+      "batch": 512,
+      "microbatch": 4,
+      "expert_cache_mib": 1280,
+      "kv_types": [
+        "f16",
+        "f16"
+      ],
+      "host_global_kv_layers": 0,
+      "prompt_tokens": [
+        256
+      ],
+      "cached_tokens": [
+        0
+      ],
+      "decode_tokens": [
+        48
+      ],
+      "prompt_tps": [
+        32.58
+      ],
+      "decode_tps": [
+        18.31
+      ],
+      "sampled_device_peak_mib": 11405,
+      "sampled_growth_peak_mib": 8213
+    }
+  ],
+  "attention_tiling_check": {
+    "context_tokens": 8192,
+    "prompt_tokens": 3072,
+    "microbatch": 256,
+    "generated_tokens": 16,
+    "matching_greedy_token_ids": 16,
+    "max_abs_selected_token_logprob_delta": 9.296427015215158e-05,
+    "tile_cell_limits_compared": [
+      0,
+      524288
+    ]
+  },
+  "tight_budget_initial": {
+    "load_mode": "none",
+    "device_limit_decimal_gb": 10,
+    "batch": 512,
+    "microbatch": 2,
+    "expert_cache_mib": 578,
+    "kv_types": [
+      "f16",
+      "f16"
+    ],
+    "host_global_kv_layers": 4,
+    "prompt_tokens": [
+      256
+    ],
+    "cached_tokens": [
+      0
+    ],
+    "decode_tokens": [
+      24
+    ],
+    "prompt_tps": [
+      19.63
+    ],
+    "decode_tps": [
+      13.42
+    ],
+    "sampled_device_peak_mib": 8598,
+    "sampled_growth_peak_mib": 5412
+  },
+  "tight_budget": {
+    "load_mode": "none",
+    "device_limit_decimal_gb": 10,
+    "batch": 512,
+    "microbatch": 512,
+    "expert_cache_mib": 1240,
+    "kv_types": [
+      "f16",
+      "f16"
+    ],
+    "host_global_kv_layers": 8,
+    "prompt_tokens": [
+      256
+    ],
+    "cached_tokens": [
+      0
+    ],
+    "decode_tokens": [
+      24
+    ],
+    "prompt_tps": [
+      251.04
+    ],
+    "decode_tps": [
+      14.01
+    ],
+    "sampled_device_peak_mib": 9356,
+    "sampled_growth_peak_mib": 6171
+  },
+  "retrieval_17000": {
+    "passed": true,
+    "context": 131072,
+    "seed": 959,
+    "depth": 0.1,
+    "rows": 1278,
+    "requested_input_tokens": 17000,
+    "usage": {
+      "completion_tokens": 6,
+      "prompt_tokens": 17000,
+      "total_tokens": 17006,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "expected": "73729704",
+    "answer": "73729704",
+    "raw_reply": "73729704.",
+    "assistant_prefix": "The shelf label for Cobalt Pier is ",
+    "finish_reason": "stop",
+    "stream_done": true,
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 17000,
+      "prompt_ms": 43244.582,
+      "prompt_per_token_ms": 2.5437989411764708,
+      "prompt_per_second": 393.1128297181829,
+      "predicted_n": 6,
+      "predicted_ms": 372.377,
+      "predicted_per_token_ms": 74.47540000000001,
+      "predicted_per_second": 13.427252488741248
+    },
+    "first_token_s": 43.26556253900344,
+    "elapsed_s": 43.639
+  }
+}

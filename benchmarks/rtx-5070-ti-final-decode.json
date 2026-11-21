@@ -1,0 +1,274 @@
+{
+  "checkpoint": "Inkling 2 Mini UD-Q4_K_M",
+  "hardware": "RTX 5070 Ti / Ryzen 9 9950X3D / WSL2",
+  "method": "Cold code prompts and greedy continuations, one model and one benchmark at a time. The GPU hosts all FP16 KV. Maximum whole-device use is 15 decimal GB, and maximum runtime growth is 13 decimal GB. Available desktop headroom sets the effective model limit.",
+  "experiments": {
+    "finish-chunk-512": {
+      "description": "Default 512-node CUDA graph chunks",
+      "runs": [
+        {
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24647.9,
+            "prompt_per_token_ms": 1.2035107421875,
+            "prompt_per_second": 830.9024298216075,
+            "predicted_n": 256,
+            "predicted_ms": 5574.275,
+            "predicted_per_token_ms": 21.859901960784313,
+            "predicted_per_second": 45.74585932699769
+          },
+          "memory_mib": {
+            "device_peak_mib": 13538,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10614,
+            "growth_limit_mib": 11290,
+            "expert_cache_slots": 1606,
+            "global_kv_committed_mib": 768
+          }
+        },
+        {
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24742.944,
+            "prompt_per_token_ms": 1.2081515624999999,
+            "prompt_per_second": 827.7107202764555,
+            "predicted_n": 256,
+            "predicted_ms": 5305.684,
+            "predicted_per_token_ms": 20.806603921568627,
+            "predicted_per_second": 48.06166367993269
+          },
+          "memory_mib": {
+            "device_peak_mib": 13538,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10614,
+            "growth_limit_mib": 11290,
+            "expert_cache_slots": 1606,
+            "global_kv_committed_mib": 768
+          }
+        }
+      ],
+      "medians": {
+        "20480": {
+          "prompt_per_second": 829.3065750490315,
+          "predicted_per_second": 46.90376150346519
+        }
+      }
+    },
+    "finish-chunk-1024": {
+      "description": "1024-node CUDA graph chunks",
+      "runs": [
+        {
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24189.997,
+            "prompt_per_token_ms": 1.181152197265625,
+            "prompt_per_second": 846.6309441873846,
+            "predicted_n": 256,
+            "predicted_ms": 5387.914,
+            "predicted_per_token_ms": 21.12907450980392,
+            "predicted_per_second": 47.328149632677885
+          },
+          "memory_mib": {
+            "device_peak_mib": 13337,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10301,
+            "growth_limit_mib": 11141,
+            "expert_cache_slots": 1573,
+            "global_kv_committed_mib": 768
+          }
+        },
+        {
+          "prompt_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+          "output_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 20480,
+            "prompt_ms": 24734.672,
+            "prompt_per_token_ms": 1.20774765625,
+            "prompt_per_second": 827.987531025275,
+            "predicted_n": 256,
+            "predicted_ms": 5239.757,
+            "predicted_per_token_ms": 20.548066666666664,
+            "predicted_per_second": 48.66637899429306
+          },
+          "memory_mib": {
+            "device_peak_mib": 13337,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10301,
+            "growth_limit_mib": 11141,
+            "expert_cache_slots": 1573,
+            "global_kv_committed_mib": 768
+          }
+        }
+      ],
+      "medians": {
+        "20480": {
+          "prompt_per_second": 837.3092376063298,
+          "predicted_per_second": 47.99726431348547
+        }
+      }
+    },
+    "finish-mid-control": {
+      "description": "Unmodified FP16 attention and serial expert gather at 65,536 tokens",
+      "runs": [
+        {
+          "prompt_sha256": "d1b8779d1191ed8bf15446a000cfd62611739befd2975d51adec0ceac7b4cdac",
+          "output_sha256": "8a78787dfdd16d3b17d65582cc4c4a6df9ce2eaaebfd1f6c300e75b3f7196057",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 65536,
+            "prompt_ms": 87534.253,
+            "prompt_per_token_ms": 1.3356667022705078,
+            "prompt_per_second": 748.6897729052421,
+            "predicted_n": 256,
+            "predicted_ms": 6174.099,
+            "predicted_per_token_ms": 24.21215294117647,
+            "predicted_per_second": 41.30157290966665
+          },
+          "memory_mib": {
+            "device_peak_mib": 12760,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10248,
+            "growth_limit_mib": 11793,
+            "expert_cache_slots": 1308,
+            "global_kv_committed_mib": 2176
+          }
+        }
+      ],
+      "medians": {
+        "65536": {
+          "prompt_per_second": 748.6897729052421,
+          "predicted_per_second": 41.30157290966665
+        }
+      }
+    },
+    "finish-overlap": {
+      "description": "Overlapped down-projection gather",
+      "runs": [
+        {
+          "prompt_sha256": "d1b8779d1191ed8bf15446a000cfd62611739befd2975d51adec0ceac7b4cdac",
+          "output_sha256": "8a78787dfdd16d3b17d65582cc4c4a6df9ce2eaaebfd1f6c300e75b3f7196057",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 65536,
+            "prompt_ms": 84953.119,
+            "prompt_per_token_ms": 1.296281723022461,
+            "prompt_per_second": 771.4372441110726,
+            "predicted_n": 256,
+            "predicted_ms": 6032.658,
+            "predicted_per_token_ms": 23.657482352941177,
+            "predicted_per_second": 42.269924799317316
+          },
+          "memory_mib": {
+            "device_peak_mib": 12774,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10246,
+            "growth_limit_mib": 11777,
+            "expert_cache_slots": 1308,
+            "global_kv_committed_mib": 2176
+          }
+        }
+      ],
+      "medians": {
+        "65536": {
+          "prompt_per_second": 771.4372441110726,
+          "predicted_per_second": 42.269924799317316
+        }
+      }
+    },
+    "finish-gqa": {
+      "description": "Grouped-query FP16 decode",
+      "runs": [
+        {
+          "prompt_sha256": "d1b8779d1191ed8bf15446a000cfd62611739befd2975d51adec0ceac7b4cdac",
+          "output_sha256": "8a78787dfdd16d3b17d65582cc4c4a6df9ce2eaaebfd1f6c300e75b3f7196057",
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 65536,
+            "prompt_ms": 85808.176,
+            "prompt_per_token_ms": 1.309328857421875,
+            "prompt_per_second": 763.7500650287683,
+            "predicted_n": 256,
+            "predicted_ms": 5968.094,
+            "predicted_per_token_ms": 23.40429019607843,
+            "predicted_per_second": 42.72720905535335
+          },
+          "memory_mib": {
+            "device_peak_mib": 12772,
+            "device_limit_mib": 14305,
+            "growth_peak_mib": 10244,
+            "growth_limit_mib": 11777,
+            "expert_cache_slots": 1308,
+            "global_kv_committed_mib": 2176
+          }
+        }
+      ],
+      "medians": {
+        "65536": {
+          "prompt_per_second": 763.7500650287683,
+          "predicted_per_second": 42.72720905535335
+        }
+      }
+    }
+  },
+  "kernel_checks": {
+    "grouped_query_fp32_matches": 36864,
+    "overlap_cache_slot_and_weight_matches": 432
+  },
+  "final_serving": {
+    "configured_chunk_nodes": 1024,
+    "context": 131072,
+    "worker_count": 1,
+    "grouped_attention_from_kv_rows": 65536,
+    "code": [
+      {
+        "timings": {
+          "cache_n": 0,
+          "prompt_n": 130560,
+          "prompt_ms": 200660.212,
+          "prompt_per_token_ms": 1.5369195159313724,
+          "prompt_per_second": 650.6521581866962,
+          "predicted_n": 256,
+          "predicted_ms": 7148.081,
+          "predicted_per_token_ms": 28.031690196078433,
+          "predicted_per_second": 35.67391024248326
+        },
+        "ids_sha256": "adaa1977f576ec8949b4e93aa3fb174e1f4ce9f48254b9a9fd90e0e5a9359545",
+        "output_ids_sha256": "3418d310bfb3c43fee683676e6d1aa532d08295dc163e29b11a9133dba18ffa1",
+        "runtime": {
+          "device_peak_mib": 13214,
+          "growth_peak_mib": 10686,
+          "device_limit_mib": 14305,
+          "growth_limit_mib": 11777,
+          "expert_cache_slots": 1042,
+          "expert_cache_allocated_mib": 4790.042333374024,
+          "global_kv_committed_mib": 4096,
+          "backend_peak_rss_mib": 15752,
+          "host_available_mib": 13237,
+          "grouped_decode_kernel_observed": "vector-gqa3"
+        }
+      }
+    ],
+    "api_smoke": "passed"
+  },
+  "selection": {
+    "selected": {
+      "cuda_graph_chunk_nodes": 1024,
+      "gqa_min_kv_rows": 65536,
+      "expert_gathers": "sequential"
+    },
+    "criteria": "Use the best independent exact-output A/B results. GQA and overlapping gathers were measured independently; the timed production profile combines graph chunk tuning and GQA.",
+    "grouped_attention": "Raw kernel values, greedy code output and short model distributions matched the reference. 65k decode 42.73 vs 41.30 tok/s at identical slot capacity.",
+    "overlap": "Raw replay and model output matched. 65k decode 42.27 vs 41.30 tok/s at identical slot capacity. The prototype stays in .runtime/down-overlap.",
+    "chunk_comparison_note": "Short-context rates are averages of two 256-output runs per setting. Desktop availability changed the active expert cache from 1606 to 1573 slots, so treat the 2.3% uplift as a small observed difference."
+  }
+}

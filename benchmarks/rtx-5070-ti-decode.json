@@ -1,0 +1,109 @@
+{
+  "hardware": "GeForce RTX 5070 Ti, Ryzen 9 9950X3D, WSL2",
+  "checkpoint": "Inkling 2 Mini UD-Q4_K_XL",
+  "checkpoint_sha256": "e64276656f072e9b2197a61723667cbdb71da66a716ffd966e572c21088f3cd3",
+  "service": {
+    "batch": 1536,
+    "ubatch": 1536,
+    "expert_cache_mib": 1037,
+    "expert_cache_slots": 209,
+    "expert_compute": "CUDA0",
+    "host_global_kv": 0,
+    "host_output": false,
+    "fast_relative_positions": true,
+    "packed_global_mask_requested": true,
+    "cache_type_k": "f16",
+    "cache_type_v": "f16",
+    "device_limit_mib": 14305,
+    "growth_limit_mib": 11377
+  },
+  "slot_context_tokens": 131072,
+  "method": "One running model and one native llama-server slot. Five serial greedy requests with seed 42 and ignore_eos. The first input was 1024 tokens of repeated weather text. Each subsequent input included the exact earlier prompt and generated IDs, with weather token IDs appended to reach the target length. The last request continued directly from the preceding response, emitted all 256 tokens, and set the truncation flag when the conversation reached the slot limit. The observation starting at 130560 had no truncation. Backend decode time excludes prefill and time to first token. Each observation covers 255 inter-token intervals for 256 output tokens. Times describe this synthetic token stream and desktop load.",
+  "lifetime_resource_peaks_after_run_mib": {
+    "device_peak_mib": 13882,
+    "growth_peak_mib": 10954,
+    "backend_peak_rss_mib": 17642
+  },
+  "trials": [
+    {
+      "starting_context_tokens": 1024,
+      "output_tokens": 256,
+      "truncated": false,
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 1024,
+        "prompt_ms": 1114.742,
+        "prompt_per_token_ms": 1.088615234375,
+        "prompt_per_second": 918.598204786399,
+        "predicted_n": 256,
+        "predicted_ms": 12737.82,
+        "predicted_per_token_ms": 49.95223529411765,
+        "predicted_per_second": 20.019124151542414
+      }
+    },
+    {
+      "starting_context_tokens": 16384,
+      "output_tokens": 256,
+      "truncated": false,
+      "timings": {
+        "cache_n": 1279,
+        "prompt_n": 15105,
+        "prompt_ms": 18761.949,
+        "prompt_per_token_ms": 1.242101886792453,
+        "prompt_per_second": 805.0869341985739,
+        "predicted_n": 256,
+        "predicted_ms": 12384.798,
+        "predicted_per_token_ms": 48.56783529411765,
+        "predicted_per_second": 20.58975850877826
+      }
+    },
+    {
+      "starting_context_tokens": 65536,
+      "output_tokens": 256,
+      "truncated": false,
+      "timings": {
+        "cache_n": 16639,
+        "prompt_n": 48897,
+        "prompt_ms": 97725.907,
+        "prompt_per_token_ms": 1.998607419678099,
+        "prompt_per_second": 500.3483876593746,
+        "predicted_n": 256,
+        "predicted_ms": 13214.333,
+        "predicted_per_token_ms": 51.8209137254902,
+        "predicted_per_second": 19.297228244512983
+      }
+    },
+    {
+      "starting_context_tokens": 130560,
+      "output_tokens": 256,
+      "truncated": false,
+      "timings": {
+        "cache_n": 65791,
+        "prompt_n": 64769,
+        "prompt_ms": 220483.065,
+        "prompt_per_token_ms": 3.40414496132409,
+        "prompt_per_second": 293.7595229819578,
+        "predicted_n": 256,
+        "predicted_ms": 14334.051,
+        "predicted_per_token_ms": 56.21196470588235,
+        "predicted_per_second": 17.789806942922137
+      }
+    },
+    {
+      "starting_context_tokens": 130816,
+      "output_tokens": 256,
+      "truncated": true,
+      "timings": {
+        "cache_n": 130815,
+        "prompt_n": 1,
+        "prompt_ms": 69.833,
+        "prompt_per_token_ms": 69.833,
+        "prompt_per_second": 14.31987742184927,
+        "predicted_n": 256,
+        "predicted_ms": 14509.079,
+        "predicted_per_token_ms": 56.89834901960784,
+        "predicted_per_second": 17.575202395686176
+      }
+    }
+  ]
+}

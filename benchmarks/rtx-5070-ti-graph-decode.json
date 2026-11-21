@@ -1,0 +1,413 @@
+{
+  "checkpoint": "UD-Q4_K_M",
+  "hardware": "RTX 5070 Ti under WSL2, Ryzen 9 9950X3D, desktop sharing VRAM",
+  "method": "A single worker loaded the same GGUF for each cold code request with 1536-token microbatch and FP16 KV. CUDA activity collection samples four single-token steps at each tested position. The host dispatch control and graph route candidate use the same preprocessing. Compare speed between runs sharing the same instrumentation. CUDA graph IDs count distinct captured segments observed in a step.",
+  "host_dispatch_cupti": {
+    "summary": {
+      "20480": {
+        "sample_positions": [
+          20608,
+          20609,
+          20610,
+          20611
+        ],
+        "gpu_graph_ids": 49.0,
+        "gpu_sample_ms": 20.9230745,
+        "uncovered_ms": 3.5000459999999984
+      },
+      "65536": {
+        "sample_positions": [
+          65664,
+          65665,
+          65666,
+          65667
+        ],
+        "gpu_graph_ids": 49.0,
+        "gpu_sample_ms": 22.7302515,
+        "uncovered_ms": 3.5677205
+      },
+      "130560": {
+        "sample_positions": [
+          130688,
+          130689,
+          130690,
+          130691
+        ],
+        "gpu_graph_ids": 48.5,
+        "gpu_sample_ms": 31.058816999999998,
+        "uncovered_ms": 3.4250279999999993
+      }
+    },
+    "kernel_counts": {
+      "outside_graph_resolve": 576,
+      "outside_graph_gather": 576
+    },
+    "dropped": 0
+  },
+  "graph_route_cupti": {
+    "summary": {
+      "20480": {
+        "sample_positions": [
+          20608,
+          20609,
+          20610,
+          20611
+        ],
+        "gpu_graph_ids": 22.0,
+        "gpu_sample_ms": 19.6611985,
+        "uncovered_ms": 2.510743500000002
+      },
+      "130560": {
+        "sample_positions": [
+          130688,
+          130689,
+          130690,
+          130691
+        ],
+        "gpu_graph_ids": 22.0,
+        "gpu_sample_ms": 30.381024500000002,
+        "uncovered_ms": 2.3688565000000015
+      }
+    },
+    "kernel_counts": {
+      "captured_resolve": 384,
+      "captured_gather": 384
+    },
+    "dropped": 0
+  },
+  "host_dispatch_20k": [
+    {
+      "ids_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+      "output_ids_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 20480,
+        "prompt_ms": 25037.165,
+        "prompt_per_token_ms": 1.222517822265625,
+        "prompt_per_second": 817.9839850078872,
+        "predicted_n": 256,
+        "predicted_ms": 5363.298,
+        "predicted_per_token_ms": 21.032541176470588,
+        "predicted_per_second": 47.545372269077724
+      },
+      "memory_mib": {
+        "expert_cache_slots": 1621,
+        "expert_cache_allocated_mib": 7445.482333374023,
+        "global_kv_committed_mib": 768,
+        "device_peak_mib": 13213,
+        "growth_peak_mib": 10275,
+        "device_limit_mib": 14305,
+        "growth_limit_mib": 11367
+      }
+    }
+  ],
+  "shortconv_20k": [
+    {
+      "ids_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+      "output_ids_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 20480,
+        "prompt_ms": 25248.798,
+        "prompt_per_token_ms": 1.2328514648437499,
+        "prompt_per_second": 811.127721802836,
+        "predicted_n": 256,
+        "predicted_ms": 5398.005,
+        "predicted_per_token_ms": 21.16864705882353,
+        "predicted_per_second": 47.23967465758183
+      },
+      "memory_mib": {
+        "expert_cache_slots": 1639,
+        "expert_cache_allocated_mib": 7528.062333374023,
+        "global_kv_committed_mib": 768,
+        "device_peak_mib": 13519,
+        "growth_peak_mib": 10807,
+        "device_limit_mib": 14305,
+        "growth_limit_mib": 11444
+      }
+    }
+  ],
+  "graph_isolated": [
+    {
+      "ids_sha256": "adaa1977f576ec8949b4e93aa3fb174e1f4ce9f48254b9a9fd90e0e5a9359545",
+      "output_ids_sha256": "3418d310bfb3c43fee683676e6d1aa532d08295dc163e29b11a9133dba18ffa1",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 130560,
+        "prompt_ms": 198526.551,
+        "prompt_per_token_ms": 1.5205771369485295,
+        "prompt_per_second": 657.6450320743244,
+        "predicted_n": 256,
+        "predicted_ms": 7897.313,
+        "predicted_per_token_ms": 30.969854901960783,
+        "predicted_per_second": 32.289463517528056
+      },
+      "memory_mib": {
+        "expert_cache_slots": 970,
+        "expert_cache_allocated_mib": 4459.712333374024,
+        "global_kv_committed_mib": 4096,
+        "device_peak_mib": 13259,
+        "growth_peak_mib": 10563,
+        "device_limit_mib": 14305,
+        "growth_limit_mib": 11444
+      }
+    },
+    {
+      "ids_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+      "output_ids_sha256": "76797496f920fee055845bffd43712ffc97f895d0a28e851e8782c7dadb09d51",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 20480,
+        "prompt_ms": 24953.504,
+        "prompt_per_token_ms": 1.2184328125000001,
+        "prompt_per_second": 820.7264198246467,
+        "predicted_n": 256,
+        "predicted_ms": 5697.926,
+        "predicted_per_token_ms": 22.344807843137257,
+        "predicted_per_second": 44.75312596197282
+      },
+      "memory_mib": {
+        "expert_cache_slots": 1639,
+        "expert_cache_allocated_mib": 7528.062333374023,
+        "global_kv_committed_mib": 768,
+        "device_peak_mib": 13184,
+        "growth_peak_mib": 10488,
+        "device_limit_mib": 14305,
+        "growth_limit_mib": 11444
+      }
+    }
+  ],
+  "shortconv_bitwise_output_count": 99840,
+  "vram_test_45k": [
+    {
+      "ids_sha256": "9b6252b2674374462caabd3c37b967a3c38be0d1c2be0df4949080e2c837c405",
+      "output_ids_sha256": "e49e5b2556b2215e865b0c247aa14900aa6ad3fa56da410faf89314da8f5ff85",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 45056,
+        "prompt_ms": 57314.393,
+        "prompt_per_token_ms": 1.272070157137784,
+        "prompt_per_second": 786.120163568687,
+        "predicted_n": 256,
+        "predicted_ms": 5768.055,
+        "predicted_per_token_ms": 22.619823529411764,
+        "predicted_per_second": 44.20900979619646
+      },
+      "memory_mib": {
+        "expert_cache_slots": 1639,
+        "expert_cache_allocated_mib": 7528.062333374023,
+        "global_kv_committed_mib": 1536,
+        "device_peak_mib": 13067,
+        "growth_peak_mib": 11076,
+        "device_limit_mib": 14305,
+        "growth_limit_mib": 11444
+      }
+    }
+  ],
+  "vram_test_49k_watchdog": {
+    "expert_cache_slots": 1639,
+    "runtime_growth_observed_mib": 11474,
+    "cap_mib": 11444
+  },
+  "prefill_decode_reuse": [
+    {
+      "cached_tokens": 0,
+      "output_count": 96,
+      "identical_input_output_and_top_eight_logprobs": true
+    },
+    {
+      "cached_tokens": 1318,
+      "output_count": 96,
+      "identical_input_output_and_top_eight_logprobs": true
+    },
+    {
+      "cached_tokens": 1423,
+      "output_count": 96,
+      "identical_input_output_and_top_eight_logprobs": true
+    },
+    {
+      "cached_tokens": 0,
+      "output_count": 96,
+      "identical_input_output_and_top_eight_logprobs": true
+    }
+  ],
+  "production": {
+    "check-graph-routes": "passed",
+    "check-shortconv": "passed",
+    "check-device-routes": "passed",
+    "served_20k": {
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 20480,
+        "prompt_ms": 24517.135,
+        "prompt_per_token_ms": 1.197125732421875,
+        "prompt_per_second": 835.3341448745949,
+        "predicted_n": 768,
+        "predicted_ms": 15036.762,
+        "predicted_per_token_ms": 19.60464406779661,
+        "predicted_per_second": 51.008322137438896
+      },
+      "runtime": {
+        "backend_peak_rss_mib": 15697,
+        "backend_rss_mib": 15697,
+        "host_available_mib": 13308,
+        "expert_compute": "CUDA0",
+        "host_global_kv": 0,
+        "host_output": false,
+        "load_mode": "dio",
+        "requested_load_mode": "dio",
+        "fast_relative_positions": true,
+        "packed_global_mask_requested": true,
+        "compact_attention_requested": "native",
+        "elastic_global_kv_requested": true,
+        "elastic_global_kv_mode": "auto",
+        "elastic_global_kv_active": true,
+        "controller_fusion_requested": "sm120-qkv",
+        "shortconv_requested": "off",
+        "device_routes_requested": true,
+        "device_routes_state": "active",
+        "device_routes_active": true,
+        "device_routes_graph_requested": true,
+        "device_routes_graph_active": true,
+        "cache_ram_mib": 0,
+        "ctx_checkpoints": 0,
+        "stage_global_kv": true,
+        "host_global_attention": {},
+        "expert_cache_mib": 2295,
+        "expert_cache_decode_extra_limit_mib": 6144,
+        "expert_cache_decode_headroom_limit_mib": 768,
+        "prompt_lookup": "none",
+        "lookup_match_tokens": 4,
+        "lookup_rollback_rows": 0,
+        "expert_cache_decode_min_tokens": 12,
+        "expert_cache_allocated_mib": 7528.062333374023,
+        "host_expert_weights_mib": 14094.0,
+        "expert_cache_slots": 1639,
+        "expert_cache_pools": [
+          {
+            "layers": 20,
+            "weight_type": "nvfp4",
+            "slots": 1367
+          },
+          {
+            "layers": 4,
+            "weight_type": "q8_0",
+            "slots": 272
+          }
+        ],
+        "expert_cache_phase": "decode",
+        "expert_cache_compute_scratch_mib": 2.0,
+        "compact_prefill_kernel_observed": "native",
+        "controller_fusion_observed": "sm120-qkv",
+        "compact_decode_kernel_observed": "vector",
+        "global_kv_reserved_mib": 4096,
+        "global_kv_committed_mib": 768,
+        "global_kv_page_kib": 2048,
+        "global_kv_chunk_kib": 8192,
+        "global_kv_target_rows": 20736,
+        "device_routes_graph_observed": true,
+        "device_routes_metadata_bytes": 296048,
+        "device_routes_session": {
+          "visits": 35712,
+          "all_hit_visits": 23540,
+          "hits": 267509,
+          "misses": 18187,
+          "miss_bytes": 85878392832
+        },
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "batch": 1536,
+        "ubatch": 1536,
+        "gpu_layers": 49,
+        "device_limit_mib": 14305,
+        "device_peak_mib": 13555,
+        "growth_limit_mib": 11444,
+        "growth_peak_mib": 10921,
+        "reserve_mib": 1024
+      },
+      "ids_sha256": "4bef68ab814864f4e264421794494fef8bc85fc61f53a09c64ec3be1acf9839f",
+      "output_ids_sha256": "fbf337d3224f308ad4bb843ab2aaba714183796759ae2796290213050c51e0a0"
+    },
+    "smoke-api": "passed",
+    "smoke-harnesses": "passed",
+    "end": {
+      "backend_peak_rss_mib": 15807,
+      "backend_rss_mib": 15755,
+      "host_available_mib": 13248,
+      "expert_compute": "CUDA0",
+      "host_global_kv": 0,
+      "host_output": false,
+      "load_mode": "dio",
+      "requested_load_mode": "dio",
+      "fast_relative_positions": true,
+      "packed_global_mask_requested": true,
+      "compact_attention_requested": "native",
+      "elastic_global_kv_requested": true,
+      "elastic_global_kv_mode": "auto",
+      "elastic_global_kv_active": true,
+      "controller_fusion_requested": "sm120-qkv",
+      "shortconv_requested": "off",
+      "device_routes_requested": true,
+      "device_routes_state": "active",
+      "device_routes_active": true,
+      "device_routes_graph_requested": true,
+      "device_routes_graph_active": true,
+      "cache_ram_mib": 0,
+      "ctx_checkpoints": 0,
+      "stage_global_kv": true,
+      "host_global_attention": {},
+      "expert_cache_mib": 2295,
+      "expert_cache_decode_extra_limit_mib": 6144,
+      "expert_cache_decode_headroom_limit_mib": 768,
+      "prompt_lookup": "none",
+      "lookup_match_tokens": 4,
+      "lookup_rollback_rows": 0,
+      "expert_cache_decode_min_tokens": 12,
+      "expert_cache_allocated_mib": 8042.542333374024,
+      "host_expert_weights_mib": 14094.0,
+      "expert_cache_slots": 1751,
+      "expert_cache_pools": [
+        {
+          "layers": 20,
+          "weight_type": "nvfp4",
+          "slots": 1460
+        },
+        {
+          "layers": 4,
+          "weight_type": "q8_0",
+          "slots": 291
+        }
+      ],
+      "expert_cache_phase": "decode",
+      "expert_cache_compute_scratch_mib": 2.0,
+      "compact_prefill_kernel_observed": "native",
+      "controller_fusion_observed": "sm120-qkv",
+      "compact_decode_kernel_observed": "vector",
+      "global_kv_reserved_mib": 4096,
+      "global_kv_committed_mib": 256,
+      "global_kv_page_kib": 2048,
+      "global_kv_chunk_kib": 8192,
+      "global_kv_target_rows": 4352,
+      "device_routes_graph_observed": true,
+      "device_routes_metadata_bytes": 296048,
+      "device_routes_session": {
+        "visits": 56352,
+        "all_hit_visits": 36197,
+        "hits": 417032,
+        "misses": 33784,
+        "miss_bytes": 160106471424
+      },
+      "cache_type_k": "f16",
+      "cache_type_v": "f16",
+      "batch": 1536,
+      "ubatch": 1536,
+      "gpu_layers": 49,
+      "device_limit_mib": 14305,
+      "device_peak_mib": 13555,
+      "growth_limit_mib": 11444,
+      "growth_peak_mib": 10921,
+      "reserve_mib": 1024
+    },
+    "worker_count": 1
+  }
+}
