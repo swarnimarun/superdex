@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+export INKLING_VARIANT="${INKLING_VARIANT:-q4xl}"
+exec "$repo/scripts/start-fast"

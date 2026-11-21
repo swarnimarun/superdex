@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source scripts/env.sh
+placement=()
+if [[ $INKLING_HOST_GLOBAL_KV != auto ]]; then placement+=(--host-global-kv "$INKLING_HOST_GLOBAL_KV"); fi
+if [[ $INKLING_HOST_OUTPUT != auto ]]; then placement+=(--host-output "$INKLING_HOST_OUTPUT"); fi
+if [[ -n ${INKLING_CACHE_MIB:-} ]]; then placement+=(--cache-mib "$INKLING_CACHE_MIB"); fi
+exec python3 inkling.py host --variant "$INKLING_VARIANT" --mode "$INKLING_MODE" --reserve-mib "$INKLING_RESERVE_MIB" --gpu "$INKLING_GPU" --device-gb "$INKLING_VRAM_GB" --api-port "$INKLING_PORT" \
+    --port "$INKLING_BACKEND_PORT" --context "$INKLING_CONTEXT" --batch "$INKLING_BATCH" --ubatch "$INKLING_UBATCH" \
+    --cache-type-k "$INKLING_CACHE_TYPE_K" --cache-type-v "$INKLING_CACHE_TYPE_V" \
+    --cache-ram-mib "$INKLING_CACHE_RAM_MIB" --ctx-checkpoints "$INKLING_CTX_CHECKPOINTS" \
+    --threads "$INKLING_THREADS" --batch-threads "$INKLING_BATCH_THREADS" --cpu-share "$INKLING_CPU_SHARE" \
+    --load-mode "$INKLING_LOAD_MODE" "${placement[@]}" "$@"

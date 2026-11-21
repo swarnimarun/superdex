@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Manage a session-scoped user service. No installation or root permissions required.
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+source "$repo/scripts/env.sh"
+unit="superdex-${INKLING_PORT}.service"
+case "${1:-start}" in
+    stop) exec systemctl --user stop "$unit" ;;
+    status) exec systemctl --user status --no-pager "$unit" ;;
+    logs) exec journalctl --user -u "$unit" -n 40 --no-pager ;;
+    start|ensure) ;;
+    *) echo "Usage: $0 {start|stop|status|logs}" >&2; exit 2 ;;
+esac
+
+ready() {
+    curl --noproxy '*' -fsS --max-time 2 "$OLLAMA_HOST/api/version" 2>/dev/null |
+        python3 -c 'import json,sys; sys.exit(json.load(sys.stdin).get("implementation") != "superdex")' 2>/dev/null &&
+        curl --noproxy '*' -fsS --max-time 2 "$OLLAMA_HOST/health" >/dev/null 2>&1
+}
+if ready; then exit 0; fi
+mkdir -p "$repo/.runtime"
+exec 9>"$repo/.runtime/service-$INKLING_PORT.lock"
+flock 9
+if ready; then exit 0; fi
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+    echo "The Superdex endpoint is offline and the user service manager is unavailable. Start $repo/scripts/serve in another terminal." >&2
+    exit 1
+fi
+unit_state() {
+    systemctl --user show "$unit" --property=ActiveState --value 2>/dev/null || true
+}
+state=$(unit_state)
+if [[ $state != active && $state != activating && $state != reloading ]]; then
+    args=()
+    for key in GGML_CUDA_GRAPH_CHUNK_SIZE INKLING_GRAPH_ROUTES INKLING_DEVICE_ROUTES INKLING_ELASTIC_KV INKLING_ELASTIC_KV_CHUNK_MIB INKLING_CONTROLLER_FUSION INKLING_FUSED_SHORTCONV INKLING_BATCH_H2D INKLING_DEFER_SLOT_WAIT INKLING_COMPACT_KERNEL INKLING_COMPACT_FA INKLING_COMPACT_DECODE INKLING_GQA_MIN_K INKLING_NATIVE_FA_MATCH_TILES INKLING_QUERY_TILE_CELLS INKLING_DECODE_CACHE_EXTRA_MIB INKLING_DECODE_CACHE_HEADROOM_MIB INKLING_DECODE_CACHE_MIN_TOKENS INKLING_PROMPT_LOOKUP INKLING_LOOKUP_MATCH_TOKENS INKLING_LOOKUP_ROLLBACK_ROWS; do
+        if [[ -n ${!key:-} ]]; then args+=("--setenv=$key=${!key}"); fi
+    done
+    for key in PATH NIX_LD NIX_LD_LIBRARY_PATH LD_LIBRARY_PATH INKLING_PORT INKLING_BACKEND_PORT INKLING_CONTEXT INKLING_BATCH INKLING_UBATCH INKLING_CACHE_TYPE_K INKLING_CACHE_TYPE_V INKLING_CACHE_RAM_MIB INKLING_CTX_CHECKPOINTS INKLING_CPU_SHARE INKLING_CACHE_MIB INKLING_THREADS INKLING_BATCH_THREADS INKLING_VRAM_GB INKLING_GPU INKLING_FAST_REL_POS INKLING_PACK_GLOBAL_MASK INKLING_HOST_GLOBAL_KV INKLING_STAGE_GLOBAL_KV INKLING_HOST_OUTPUT INKLING_LOAD_MODE INKLING_MODE INKLING_VARIANT INKLING_RESERVE_MIB; do
+        if [[ -n ${!key:-} ]]; then args+=("--setenv=$key=${!key}"); fi
+    done
+    # The supervisor forwards SIGTERM. A second signal makes llama-server skip CUDA cleanup.
+    systemd-run --user --collect --unit="$unit" --property=Restart=on-failure --property=KillMode=mixed \
+        --property=RestartSec=5s --property=StartLimitBurst=6 --property=StartLimitIntervalSec=120s \
+        "${args[@]}" "$repo/scripts/serve"
+fi
+echo "Waiting for Superdex on $OLLAMA_HOST" >&2
+for ((i=0; i<300; i++)); do
+    if ready; then exit 0; fi
+    state=$(unit_state)
+    case "$state" in active|activating|reloading) ;; *) break ;; esac
+    sleep 1
+done
+journalctl --user -u "$unit" -n 15 --no-pager >&2
+exit 1
