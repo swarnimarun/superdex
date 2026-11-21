@@ -16,7 +16,7 @@ The near-window trial peaked at 13.86 decimal GB on the device, including 11.20 
 
 ## Reproduce the workloads
 
-Start the [fast profile](../README.md#start-the-endpoint) and leave it as the only model worker. Run from the checkout while the endpoint is idle. Write new results under `.runtime/` for local analysis. The exact hashes in the historical code trials are for the patched source used in that trial.
+Start the [fast profile](../docs/runtime.md#start-the-endpoint) and leave it as the only model worker. Run from the checkout while the endpoint is idle. Write new results under `.runtime/` for local analysis. The exact hashes in the historical code trials are for the patched source used in that trial.
 
 ```bash
 mkdir -p .runtime/benchmarks
@@ -29,7 +29,7 @@ done
 ./scripts/bench-prefill 1024 16384 > .runtime/benchmarks/prefill.json
 ```
 
-`--tokens` counts input tokens. The prompt and completion together must fit the configured slot. `bench-code-context` builds the prompt from pinned llama.cpp sources and records input and output token hashes, timings and static checks of the generated Python. `probe-context` measures a cold retrieval with a generated catalog. To repeat the paired reference and quantization checks or to use a different VRAM cap, follow the commands in the project README. [Checkpoint comparison](../README.md#reproduce-a-checkpoint-comparison) · [Memory settings](../README.md#set-a-memory-budget-and-measure-speed)
+`--tokens` counts input tokens. The prompt and completion together must fit the configured slot. `bench-code-context` builds the prompt from pinned llama.cpp sources and records input and output token hashes, timings and static checks of the generated Python. `probe-context` measures a cold retrieval with a generated catalog. The runtime guide covers paired checkpoint comparisons and VRAM caps. [Checkpoint comparison](../docs/runtime.md#reproduce-a-checkpoint-comparison) · [Memory settings](../docs/runtime.md#set-a-memory-budget-and-measure-speed)
 
 ## Result files
 
