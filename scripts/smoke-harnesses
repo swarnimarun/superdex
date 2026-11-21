@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Require the agent to actually recover an unpredictable value through a file tool.
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d)
+trap 'rm -r -- "$work"' EXIT
+cd "$work"
+prompt='Use a file-reading tool to read answer.txt in the current directory. Reply with only the value inside.'
+for harness in pi codex; do
+    expected=$(python3 -c 'import secrets; print(secrets.token_hex(8))')
+    echo "$expected" > answer.txt
+    if [[ $harness == pi ]]; then
+        "$repo/scripts/pi" --no-session --no-context-files --no-extensions --no-skills --tools read -p "$prompt" > reply.txt
+    else
+        "$repo/scripts/codex" exec --ignore-user-config --ephemeral --skip-git-repo-check \
+            -s read-only --color never -o reply.txt "$prompt"
+    fi
+    if ! rg -Fq "$expected" reply.txt; then
+        cat reply.txt >&2
+        echo "$harness failed to return the value from answer.txt" >&2
+        exit 1
+    fi
+    echo "$harness passed the file-tool round trip"
+done

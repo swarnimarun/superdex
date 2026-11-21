@@ -1,0 +1,41 @@
+{
+  "models": [
+    {
+      "slug": "inkling-2-mini:latest",
+      "display_name": "Inkling 2 Mini",
+      "description": "Local text model",
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        {
+          "effort": "low",
+          "description": "Shorter reasoning"
+        },
+        {
+          "effort": "medium",
+          "description": "Standard reasoning"
+        },
+        {
+          "effort": "high",
+          "description": "Extended reasoning"
+        }
+      ],
+      "shell_type": "unified_exec",
+      "visibility": "list",
+      "supported_in_api": true,
+      "priority": 1,
+      "base_instructions": "You are a coding assistant working with the user in their project. Use the available tools to inspect files, implement requested changes, and verify your work.",
+      "default_reasoning_summary": "none",
+      "support_verbosity": false,
+      "truncation_policy": {
+        "mode": "tokens",
+        "limit": 4096
+      },
+      "context_window": 131072,
+      "experimental_supported_tools": [],
+      "input_modalities": [
+        "text"
+      ],
+      "supports_search_tool": false
+    }
+  ]
+}

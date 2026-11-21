@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+source "$repo/scripts/env.sh"
+export PI_CODING_AGENT_DIR="$repo/.runtime/pi-agent"
+if [[ $INKLING_PORT != 11434 ]]; then PI_CODING_AGENT_DIR+="-$INKLING_PORT"; fi
+export PI_OFFLINE=1
+# Help and offline model discovery work without a GPU.
+needs_server=true
+for arg in "$@"; do
+    case "$arg" in --help|-h|--version|--list-models|--list-models=*) needs_server=false; break ;; esac
+done
+if [[ $needs_server == true ]]; then "$repo/scripts/service" ensure; fi
+python3 "$repo/scripts/client_config.py" pi >/dev/null
+exec pi --offline --provider superdex --model "$INKLING_MODEL" "$@"
